@@ -1,0 +1,35 @@
+[package]
+name = "python-node"
+version = "1.0.0"
+description = "Run ASGI-compatible Python apps in Node.js"
+authors = ["Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)"]
+license = "Apache-2.0"
+repository = "https://github.com/platformatic/http-rewriter"
+keywords = ["http", "rewriting", "library"]
+categories = ["network-programming", "web-development"]
+edition = "2024"
+
+[lib]
+name = "python_node"
+crate-type = ["cdylib"]
+
+[dependencies]
+async-trait = "0.1.88"
+bytes = "1.10.1"
+http-handler = { git = "ssh://git@github.com/platformatic/http-handler", features = ["napi-support"] }
+# http-handler = { path = "../http-handler", features = ["napi-support"] }
+# http-rewriter = { git = "ssh://git@github.com/platformatic/http-rewriter", features = ["napi-support"] }
+http-rewriter = { path = "../http-rewriter", features = ["napi-support"] }
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+napi = { version = "3.0.0-beta.8", default-features = false, features = ["napi4"] }
+napi-derive = "3.0.0-beta.8"
+pyo3 = { version = "0.25.1", features = ["auto-initialize", "experimental-async"] }
+pyo3-async-runtimes = { version = "0.25.0", features = ["tokio-runtime"] }
+tokio = { version = "1.45.1", features = ["full"] }
+
+[build-dependencies]
+napi-build = "2.2.1"
+
+[profile.release]
+lto = true
+strip = "symbols"
