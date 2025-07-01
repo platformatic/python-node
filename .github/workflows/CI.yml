@@ -4,6 +4,7 @@ env:
   DEBUG: napi:*
   APP_NAME: python-node
   MACOSX_DEPLOYMENT_TARGET: '10.13'
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
 
 permissions:
   contents: write
@@ -22,6 +23,10 @@ on:
       - .editorconfig
       - docs/**
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-ci
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -45,7 +50,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
+          ssh-private-key: |
+            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
+            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
@@ -88,22 +95,52 @@ jobs:
           run: |
             set -x
 
+            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+
             # Install apt dependencies
             apt-get update -y
-            apt-get install -y openssh-client
+            apt-get install -y openssh-client python3 python3-dev
 
             # Setup pnpm
             corepack disable
             npm i -gf pnpm
 
-            # Set up SSH key (to checkout private repos with cargo)
+            # Set up SSH keys (to checkout private repos with cargo)
             mkdir -p ~/.ssh
-            chmod -R 400 ~/.ssh
-            touch ~/.ssh/config  ~/.ssh/known_hosts
-            eval `ssh-agent -s`
-            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' | ssh-add -
-            ssh-add -l
-            ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+            chmod 700 ~/.ssh
+
+            # Save SSH keys to files
+            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_handler_key
+            echo "${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_rewriter_key
+            chmod 600 ~/.ssh/http_handler_key
+            chmod 600 ~/.ssh/http_rewriter_key
+
+            # Add GitHub to known hosts (for all aliases)
+            ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+
+            # Create SSH config with host aliases
+            cat > ~/.ssh/config <<'EOF'
+            Host github.com-http-handler
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/http_handler_key
+              IdentitiesOnly yes
+
+            Host github.com-http-rewriter
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/http_rewriter_key
+              IdentitiesOnly yes
+            EOF
+            chmod 600 ~/.ssh/config
+
+            # Configure git to rewrite URLs to use the correct host alias
+            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler".insteadOf "ssh://git@github.com/platformatic/http-handler"
+            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter".insteadOf "ssh://git@github.com/platformatic/http-rewriter"
+
+            # Also handle variations without .git suffix
+            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
+            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
             ${{ matrix.settings.build }}
       - name: Build
@@ -138,7 +175,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
+          ssh-private-key: |
+            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
+            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
@@ -154,6 +193,14 @@ jobs:
           path: .
       - name: List packages
         run: ls -R .
+        shell: bash
+      - name: Check test directory
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Test directory contents:"
+          ls -la test/ || echo "test/ directory not found"
+          echo "Looking for test files:"
+          find . -name "*.test.mjs" -type f || echo "No test files found"
         shell: bash
       - run: cargo test
       - run: pnpm test
@@ -227,32 +274,137 @@ jobs:
           run: |
             set -x
 
+            export CARGO_NET_GIT_FETCH_WITH_CLI=true
+
             # Install apt dependencies
             apt-get update -y
-            apt-get install -y openssh-client curl
+            apt-get install -y openssh-client curl git build-essential python3 python3-dev
 
             # Install rust toolchain
             curl https://sh.rustup.rs -sSf | bash -s -- -y -t ${{ matrix.settings.target }}
-            source "$HOME/.cargo/env"
+            . "$HOME/.cargo/env"
 
-            # Set up SSH key (to checkout private repos with cargo)
+            # Set up SSH keys (to checkout private repos with cargo)
             mkdir -p ~/.ssh
-            chmod -R 400 ~/.ssh
-            touch ~/.ssh/config  ~/.ssh/known_hosts
-            eval `ssh-agent -s`
-            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' | ssh-add -
-            ssh-add -l
-            ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+            chmod 700 ~/.ssh
+
+            # Save SSH keys to files
+            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_handler_key
+            echo "${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_rewriter_key
+            chmod 600 ~/.ssh/http_handler_key
+            chmod 600 ~/.ssh/http_rewriter_key
+
+            # Add GitHub to known hosts (for all aliases)
+            ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+
+            # Create SSH config with host aliases
+            cat > ~/.ssh/config <<'EOF'
+            Host github.com-http-handler
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/http_handler_key
+              IdentitiesOnly yes
+
+            Host github.com-http-rewriter
+              HostName github.com
+              User git
+              IdentityFile ~/.ssh/http_rewriter_key
+              IdentitiesOnly yes
+            EOF
+            chmod 600 ~/.ssh/config
+
+            # Configure git to rewrite URLs to use the correct host alias
+            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler".insteadOf "ssh://git@github.com/platformatic/http-handler"
+            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter".insteadOf "ssh://git@github.com/platformatic/http-rewriter"
+
+            # Also handle variations without .git suffix
+            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
+            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
             cargo test --target ${{ matrix.settings.target }}
       - name: Test bindings
         uses: addnab/docker-run-action@v3
         with:
           image: ${{ steps.docker.outputs.IMAGE }}
-          options: -v ${{ steps.docker.outputs.PNPM_STORE_PATH }}:${{ steps.docker.outputs.PNPM_STORE_PATH }} -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }}
+          options: -v ${{ steps.docker.outputs.PNPM_STORE_PATH }}:${{ steps.docker.outputs.PNPM_STORE_PATH }} -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }} -e CI=true -e GITHUB_ACTIONS=true
           run: |
+            # Install Python 3.x
+            apt-get update -y
+            apt-get install -y python3 python3-dev patchelf
+
+            echo "=== Starting test setup ==="
+            echo "Current directory: $(pwd)"
+            echo "Python version: $(python3 --version)"
+            echo "Patchelf version: $(patchelf --version)"
+            echo "Using combined approach: SONAME patching + programmatic RTLD_GLOBAL"
+            echo "CI environment: CI=$CI, GITHUB_ACTIONS=$GITHUB_ACTIONS"
+
+            # Check what .node files exist
+            echo "=== Available .node files ==="
+            ls -la *.node || echo "No .node files found"
+
+            # Check what .node files exist and patch Python dependencies
+            echo "=== Checking .node file Python dependencies ==="
+            for file in *.node; do
+              if [ -f "$file" ]; then
+                case "$file" in
+                  *linux*)
+                    echo "Checking $file..."
+                    echo "Python dependencies before patching:"
+                    ldd "$file" 2>/dev/null | grep python || echo "No Python dependencies found"
+                    
+                    # Check if we need to patch SONAME
+                    current_python_lib=$(ldd "$file" 2>/dev/null | grep "libpython" | head -1 | awk '{print $1}')
+                    if [ -n "$current_python_lib" ]; then
+                      echo "Current Python library: $current_python_lib"
+                      
+                      # Find the actual Python library on the system
+                      system_python_lib=$(find /usr/lib* -name "libpython3*.so.*" -type f 2>/dev/null | head -1)
+                      if [ -n "$system_python_lib" ]; then
+                        system_python_soname=$(basename "$system_python_lib")
+                        echo "System Python library: $system_python_soname"
+                        
+                        # Only patch if they're different
+                        if [ "$current_python_lib" != "$system_python_soname" ]; then
+                          echo "Patching SONAME from $current_python_lib to $system_python_soname"
+                          patchelf --replace-needed "$current_python_lib" "$system_python_soname" "$file"
+                          echo "SONAME patching completed"
+                        else
+                          echo "SONAME already matches system Python"
+                        fi
+                      else
+                        echo "Warning: Could not find system Python library"
+                      fi
+                    else
+                      echo "No Python library dependency found"
+                    fi
+                    
+                    echo "Python dependencies after patching:"
+                    ldd "$file" 2>/dev/null | grep python || echo "No Python dependencies found"
+                    echo "---"
+                    ;;
+                  *)
+                    echo "Skipping non-Linux file: $file"
+                    ;;
+                esac
+              fi
+            done
+
+            # Install pnpm and run tests
+            echo "=== Installing pnpm ==="
             corepack disable
             npm i -gf pnpm
+
+            echo "=== Running pnpm install ==="
+            # Should be non-interactive in CI environment
+            pnpm install --prefer-offline
+
+            echo "=== Setting up Python library path ==="
+            export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+
+
+            echo "=== Running tests ==="
             pnpm test
 
   publish:
