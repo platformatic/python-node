@@ -25,7 +25,7 @@ http-handler = { git = "ssh://git@github.com/platformatic/http-handler" }
 http-rewriter = { git = "ssh://git@github.com/platformatic/http-rewriter" }
 # http-rewriter = { path = "../http-rewriter" }
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
-napi = { version = "3", default-features = false, features = ["napi4"], optional = true }
+napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "async"], optional = true }
 napi-derive = { version = "3", optional = true }
 pyo3 = { version = "0.25.1", features = ["experimental-async"] }
 pyo3-async-runtimes = { version = "0.25.0", features = ["tokio-runtime"] }

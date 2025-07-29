@@ -14,7 +14,7 @@ use std::sync::Arc;
 #[cfg(feature = "napi-support")]
 use http_handler::napi::{Request as NapiRequest, Response as NapiResponse};
 #[cfg(feature = "napi-support")]
-use http_handler::{Request, Response};
+use http_handler::{Handler, Request, Response};
 #[cfg(feature = "napi-support")]
 #[allow(unused_imports)]
 use http_rewriter::napi::Rewriter;
@@ -25,8 +25,9 @@ extern crate napi_derive;
 use napi::bindgen_prelude::*;
 
 mod asgi;
+use crate::asgi::HttpReceiveMessage;
 pub use asgi::Asgi;
-use tokio::sync::oneshot::error::RecvError;
+use tokio::sync::{mpsc::error::SendError, oneshot::error::RecvError};
 
 /// The Python module and function for handling requests.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -186,11 +187,12 @@ impl PythonHandler {
   #[napi(constructor)]
   pub fn new(options: Option<PythonOptions>) -> Result<Self> {
     let options = options.unwrap_or_default();
-    let asgi = Arc::new(
-      Asgi::new(options.docroot, options.app_target)
-        .map_err(|e| Error::from_reason(e.to_string()))?,
-    );
-    Ok(PythonHandler { asgi })
+    let asgi = Asgi::new(options.docroot, options.app_target)
+      .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(PythonHandler {
+      asgi: Arc::new(asgi),
+    })
   }
 
   /// Get the document root for this Python handler.
@@ -211,17 +213,17 @@ impl PythonHandler {
     self.asgi.docroot().display().to_string()
   }
 
-  /// Handle a PHP request.
+  /// Handle a Python request.
   ///
   /// # Examples
   ///
   /// ```js
-  /// const php = new Php({
+  /// const python = new Python({
   ///   docroot: process.cwd(),
   ///   argv: process.argv
   /// });
   ///
-  /// const response = php.handleRequest(new Request({
+  /// const response = await python.handleRequest(new Request({
   ///   method: 'GET',
   ///   url: 'http://example.com'
   /// }));
@@ -230,20 +232,29 @@ impl PythonHandler {
   /// console.log(response.body);
   /// ```
   #[napi]
-  pub fn handle_request(
-    &self,
-    request: &NapiRequest,
-    signal: Option<AbortSignal>,
-  ) -> AsyncTask<PythonRequestTask> {
+  pub async fn handle_request(&self, request: &NapiRequest) -> Result<NapiResponse> {
     use std::ops::Deref;
-    AsyncTask::with_optional_signal(
-      PythonRequestTask {
-        asgi: Arc::clone(&self.asgi),
-        request: request.deref().clone(),
-      },
-      signal,
-    )
+    let response = self
+      .asgi
+      .handle(request.deref().clone())
+      .await
+      .map_err(|e| Error::from_reason(e.to_string()))?;
+    Ok(response.into())
   }
+  // pub fn handle_request(
+  //   &self,
+  //   request: &NapiRequest,
+  //   signal: Option<AbortSignal>,
+  // ) -> AsyncTask<PythonRequestTask> {
+  //   use std::ops::Deref;
+  //   AsyncTask::with_optional_signal(
+  //     PythonRequestTask {
+  //       asgi: self.asgi.clone(),
+  //       request: request.deref().clone(),
+  //     },
+  //     signal,
+  //   )
+  // }
 
   /// Handle a PHP request synchronously.
   ///
@@ -267,7 +278,7 @@ impl PythonHandler {
   pub fn handle_request_sync(&self, request: &NapiRequest) -> Result<NapiResponse> {
     use std::ops::Deref;
     let mut task = PythonRequestTask {
-      asgi: Arc::clone(&self.asgi),
+      asgi: self.asgi.clone(),
       request: request.deref().clone(),
     };
 
@@ -283,6 +294,7 @@ pub struct PythonRequestTask {
 }
 
 /// Error types for the Python request handler.
+#[allow(clippy::large_enum_variant)]
 #[derive(thiserror::Error, Debug)]
 pub enum HandlerError {
   /// IO errors that may occur during file operations.
@@ -314,12 +326,24 @@ pub enum HandlerError {
   ResponseInterrupted,
 
   /// Error when response channel is closed.
-  #[error("Response channel closed")]
+  #[error("Response channel closed: {0}")]
   ResponseChannelClosed(#[from] RecvError),
+
+  /// Error when unable to send message to Python.
+  #[error("Unable to send message to Python: {0}")]
+  UnableToSendMessageToPython(#[from] SendError<HttpReceiveMessage>),
 
   /// Error when creating an HTTP response fails.
   #[error("Failed to create response: {0}")]
   HttpHandlerError(#[from] http_handler::Error),
+
+  /// Error when event loop is closed.
+  #[error("Event loop closed")]
+  EventLoopClosed,
+
+  /// Error when PYTHON_NODE_WORKERS is invalid
+  #[error("Invalid PYTHON_NODE_WORKERS count: {0}")]
+  InvalidWorkerCount(#[from] std::num::ParseIntError),
 }
 
 #[cfg(feature = "napi-support")]

@@ -172,7 +172,7 @@ test('Python', async t => {
       ok(false, 'should have thrown an error')
     } catch (error) {
       // Error is expected for unhandled exceptions
-      ok(error.message.includes('Failed to receive response') || error.message.includes('Test error'), 'should fail on error')
+      ok(error.message.includes('No response sent') || error.message.includes('Test error'), 'should fail on error')
     }
   })
 })
