@@ -1,0 +1,11 @@
+[package]
+name = "fix-python-soname"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fix-python-soname"
+path = "src/main.rs"
+
+[dependencies]
+arwen = "0.0.2"

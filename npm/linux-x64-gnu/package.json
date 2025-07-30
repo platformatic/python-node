@@ -9,8 +9,13 @@
   ],
   "main": "python-node.linux-x64-gnu.node",
   "files": [
-    "python-node.linux-x64-gnu.node"
+    "python-node.linux-x64-gnu.node",
+    "fix-python-soname.js",
+    "fix-python-soname.wasm"
   ],
+  "scripts": {
+    "postinstall": "node fix-python-soname.js"
+  },
   "license": "MIT",
   "engines": {
     "node": ">= 10"

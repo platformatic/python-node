@@ -142,6 +142,7 @@ jobs:
             git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
             git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
+            npm run build:wasm
             ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -155,6 +156,8 @@ jobs:
             ${{ env.APP_NAME }}.*.node
             index.d.ts
             index.js
+            fix-python-soname.wasm
+            fix-python-soname.js
           if-no-files-found: error
 
   test-macOS-windows-binding:
@@ -239,6 +242,9 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
+      - name: Fix soname
+        run: pnpm run build:fix
+        shell: bash
       - uses: actions/download-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
@@ -332,79 +338,9 @@ jobs:
             apt-get update -y
             apt-get install -y python3 python3-dev patchelf
 
-            echo "=== Starting test setup ==="
-            echo "Current directory: $(pwd)"
-            echo "Python version: $(python3 --version)"
-            echo "Patchelf version: $(patchelf --version)"
-            echo "Using combined approach: SONAME patching + programmatic RTLD_GLOBAL"
-            echo "CI environment: CI=$CI, GITHUB_ACTIONS=$GITHUB_ACTIONS"
-
-            # Check what .node files exist
-            echo "=== Available .node files ==="
-            ls -la *.node || echo "No .node files found"
-
-            # Check what .node files exist and patch Python dependencies
-            echo "=== Checking .node file Python dependencies ==="
-            for file in *.node; do
-              if [ -f "$file" ]; then
-                case "$file" in
-                  *linux*)
-                    echo "Checking $file..."
-                    echo "Python dependencies before patching:"
-                    ldd "$file" 2>/dev/null | grep python || echo "No Python dependencies found"
-                    
-                    # Check if we need to patch SONAME
-                    current_python_lib=$(ldd "$file" 2>/dev/null | grep "libpython" | head -1 | awk '{print $1}')
-                    if [ -n "$current_python_lib" ]; then
-                      echo "Current Python library: $current_python_lib"
-                      
-                      # Find the actual Python library on the system
-                      system_python_lib=$(find /usr/lib* -name "libpython3*.so.*" -type f 2>/dev/null | head -1)
-                      if [ -n "$system_python_lib" ]; then
-                        system_python_soname=$(basename "$system_python_lib")
-                        echo "System Python library: $system_python_soname"
-                        
-                        # Only patch if they're different
-                        if [ "$current_python_lib" != "$system_python_soname" ]; then
-                          echo "Patching SONAME from $current_python_lib to $system_python_soname"
-                          patchelf --replace-needed "$current_python_lib" "$system_python_soname" "$file"
-                          echo "SONAME patching completed"
-                        else
-                          echo "SONAME already matches system Python"
-                        fi
-                      else
-                        echo "Warning: Could not find system Python library"
-                      fi
-                    else
-                      echo "No Python library dependency found"
-                    fi
-                    
-                    echo "Python dependencies after patching:"
-                    ldd "$file" 2>/dev/null | grep python || echo "No Python dependencies found"
-                    echo "---"
-                    ;;
-                  *)
-                    echo "Skipping non-Linux file: $file"
-                    ;;
-                esac
-              fi
-            done
-
-            # Install pnpm and run tests
-            echo "=== Installing pnpm ==="
             corepack disable
             npm i -gf pnpm
-
-            echo "=== Running pnpm install ==="
-            # Should be non-interactive in CI environment
             pnpm install --prefer-offline
-
-            echo "=== Setting up Python library path ==="
-            export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
-            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-
-
-            echo "=== Running tests ==="
             pnpm test
 
   publish:
@@ -430,6 +366,27 @@ jobs:
           path: artifacts
       - name: Move artifacts
         run: pnpm artifacts
+      - name: Copy fix-python-soname files to Linux packages
+        run: |
+          # Find the WASM and JS files from Linux artifacts
+          WASM_FILE=$(find artifacts -name "fix-python-soname.wasm" | head -n 1)
+          JS_FILE=$(find artifacts -name "fix-python-soname.js" | head -n 1)
+
+          if [ -n "$WASM_FILE" ] && [ -n "$JS_FILE" ]; then
+            echo "Found WASM file: $WASM_FILE"
+            echo "Found JS file: $JS_FILE"
+
+            # Copy to all Linux npm directories
+            for dir in npm/*/; do
+              if [[ "$dir" == *"linux"* ]]; then
+                echo "Copying files to $dir"
+                cp "$WASM_FILE" "$dir"
+                cp "$JS_FILE" "$dir"
+              fi
+            done
+          else
+            echo "Warning: fix-python-soname files not found in artifacts"
+          fi
       - name: List packages
         run: ls -R ./npm
         shell: bash

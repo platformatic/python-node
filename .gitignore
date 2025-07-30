@@ -199,5 +199,6 @@ $RECYCLE.BIN/
 # Build/Install files
 /target
 /*.node
+/*.wasm
 /index.d.ts
 /index.js
