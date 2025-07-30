@@ -1,12 +1,12 @@
 {
-  "name": "python-node",
+  "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
   "private": true,
   "version": "0.0.0",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
-    "bnaryName": "python-node",
+    "binaryName": "python-node",
     "targets": [
       "aarch64-apple-darwin",
       "x86_64-apple-darwin",
@@ -15,7 +15,7 @@
   },
   "license": "MIT",
   "devDependencies": {
-    "@napi-rs/cli": "3.0.0-alpha.89",
+    "@napi-rs/cli": "^3.0.4",
     "@oxc-node/core": "^0.0.23",
     "oxlint": "^0.16.0"
   },
@@ -25,7 +25,7 @@
   "scripts": {
     "artifacts": "napi artifacts",
     "build": "npm run build:debug -- --release",
-    "build:debug": "napi build --platform",
+    "build:debug": "napi build --platform --features napi-support",
     "prepublishOnly": "napi prepublish -t npm",
     "lint": "oxlint",
     "test": "node --test test/**.test.mjs",
