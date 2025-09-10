@@ -7,12 +7,7 @@ use std::{
 };
 
 #[cfg(target_os = "linux")]
-use std::os::raw::c_void;
-
-#[cfg(target_os = "linux")]
-unsafe extern "C" {
-  fn dlopen(filename: *const i8, flag: i32) -> *mut c_void;
-}
+use std::{ffi::CStr, mem};
 
 use bytes::BytesMut;
 use http_handler::{Handler, Request, RequestExt, Response, extensions::DocumentRoot};
@@ -288,54 +283,38 @@ impl Handler for Asgi {
   }
 }
 
-/// Load Python library with RTLD_GLOBAL on Linux to make symbols available
+/// Load Python library with RTLD_GLOBAL on Linux to expose interpreter symbols
 #[cfg(target_os = "linux")]
 fn ensure_python_symbols_global() {
-  unsafe {
-    // Try to find the system Python library dynamically
-    use std::process::Command;
+  // Only perform the promotion once per process
+  static GLOBALIZE_ONCE: OnceLock<()> = OnceLock::new();
 
-    // First try to find the Python library using find command
-    if let Ok(output) = Command::new("find")
-      .args(&[
-        "/usr/lib",
-        "/usr/lib64",
-        "/usr/local/lib",
-        "-name",
-        "libpython3*.so.*",
-        "-type",
-        "f",
-      ])
-      .output()
+  GLOBALIZE_ONCE.get_or_init(|| unsafe {
+    let mut info: libc::Dl_info = mem::zeroed();
+    if libc::dladdr(pyo3::ffi::Py_Initialize as *const _, &mut info) == 0
+      || info.dli_fname.is_null()
     {
-      let output_str = String::from_utf8_lossy(&output.stdout);
-      for lib_path in output_str.lines() {
-        if let Ok(lib_cstring) = CString::new(lib_path) {
-          let handle = dlopen(lib_cstring.as_ptr(), RTLD_NOW | RTLD_GLOBAL);
-          if !handle.is_null() {
-            // Successfully loaded Python library with RTLD_GLOBAL
-            return;
-          }
-        }
-      }
+      eprintln!("unable to locate libpython for RTLD_GLOBAL promotion");
+      return;
     }
 
-    const RTLD_GLOBAL: i32 = 0x100;
-    const RTLD_NOW: i32 = 0x2;
+    let path_cstr = CStr::from_ptr(info.dli_fname);
+    let path_str = path_cstr.to_string_lossy();
 
-    // Fallback to trying common library names if find command fails
-    // Try a range of Python versions (3.9 to 3.100 should cover future versions)
-    for minor in 9..=100 {
-      let lib_name = format!("libpython3.{}.so.1.0\0", minor);
-      let handle = dlopen(lib_name.as_ptr() as *const i8, RTLD_NOW | RTLD_GLOBAL);
-      if !handle.is_null() {
-        // Successfully loaded Python library with RTLD_GLOBAL
-        return;
+    // Clear any prior dlerror state before attempting to reopen
+    libc::dlerror();
+
+    let handle = libc::dlopen(info.dli_fname, libc::RTLD_NOW | libc::RTLD_GLOBAL);
+    if handle.is_null() {
+      let error = libc::dlerror();
+      if !error.is_null() {
+        let msg = CStr::from_ptr(error).to_string_lossy();
+        eprintln!("dlopen({path_str}) failed with RTLD_GLOBAL: {msg}",);
+      } else {
+        eprintln!("dlopen({path_str}) returned null without dlerror",);
       }
     }
-
-    eprintln!("Failed to locate system Python library");
-  }
+  });
 }
 
 /// Find all Python site-packages directories in a virtual environment

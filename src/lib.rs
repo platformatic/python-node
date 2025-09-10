@@ -8,6 +8,7 @@
 #![warn(clippy::dbg_macro, clippy::print_stdout)]
 #![warn(missing_docs)]
 
+use std::ffi::c_char;
 #[cfg(feature = "napi-support")]
 use std::sync::Arc;
 
@@ -95,7 +96,7 @@ impl FromNapiValue for PythonHandlerTarget {
         check_status!(sys::napi_get_value_string_utf8(
           env,
           napi_val,
-          buffer.as_mut_ptr() as *mut i8,
+          buffer.as_mut_ptr() as *mut c_char,
           length + 1,
           &mut length
         ))
@@ -142,7 +143,7 @@ impl ToNapiValue for PythonHandlerTarget {
     unsafe {
       check_status!(sys::napi_create_string_utf8(
         env,
-        full_str.as_ptr() as *const i8,
+        full_str.as_ptr() as *const c_char,
         full_str.len() as isize,
         &mut result
       ))
@@ -363,5 +364,117 @@ impl Task for PythonRequestTask {
   // Handle converting the PHP response to a JavaScript response in the main thread.
   fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
     Ok(Into::<NapiResponse>::into(output))
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_python_handler_target_try_from_str_valid() {
+    let target = PythonHandlerTarget::try_from("main:app").unwrap();
+    assert_eq!(target.file, "main");
+    assert_eq!(target.function, "app");
+
+    let target = PythonHandlerTarget::try_from("my_module:my_function").unwrap();
+    assert_eq!(target.file, "my_module");
+    assert_eq!(target.function, "my_function");
+  }
+
+  #[test]
+  fn test_python_handler_target_try_from_str_invalid() {
+    // No colon
+    let result = PythonHandlerTarget::try_from("invalid");
+    assert!(result.is_err());
+    assert_eq!(
+      result.unwrap_err(),
+      "Invalid format, expected \"file:function\""
+    );
+
+    // Multiple colons
+    let result = PythonHandlerTarget::try_from("too:many:colons");
+    assert!(result.is_err());
+    assert_eq!(
+      result.unwrap_err(),
+      "Invalid format, expected \"file:function\""
+    );
+
+    // Empty string
+    let result = PythonHandlerTarget::try_from("");
+    assert!(result.is_err());
+    assert_eq!(
+      result.unwrap_err(),
+      "Invalid format, expected \"file:function\""
+    );
+
+    // Only colon - this actually succeeds with empty file and function
+    // The current implementation allows this: ":" -> file="", function=""
+    let result = PythonHandlerTarget::try_from(":");
+    assert!(result.is_ok());
+    let target = result.unwrap();
+    assert_eq!(target.file, "");
+    assert_eq!(target.function, "");
+
+    // Test with empty parts in different ways
+    let result = PythonHandlerTarget::try_from(":function");
+    assert!(result.is_ok());
+    let target = result.unwrap();
+    assert_eq!(target.file, "");
+    assert_eq!(target.function, "function");
+
+    let result = PythonHandlerTarget::try_from("file:");
+    assert!(result.is_ok());
+    let target = result.unwrap();
+    assert_eq!(target.file, "file");
+    assert_eq!(target.function, "");
+  }
+
+  #[test]
+  fn test_python_handler_target_from_string_conversion() {
+    let target = PythonHandlerTarget {
+      file: "test_module".to_string(),
+      function: "test_function".to_string(),
+    };
+    let result: String = target.into();
+    assert_eq!(result, "test_module:test_function");
+  }
+
+  #[test]
+  fn test_python_handler_target_default() {
+    let target = PythonHandlerTarget::default();
+    assert_eq!(target.file, "main");
+    assert_eq!(target.function, "app");
+  }
+
+  #[test]
+  fn test_python_handler_target_debug_clone_eq_hash() {
+    let target1 = PythonHandlerTarget {
+      file: "test".to_string(),
+      function: "app".to_string(),
+    };
+    let target2 = target1.clone();
+
+    // Test Debug
+    let debug_str = format!("{:?}", target1);
+    assert!(debug_str.contains("test"));
+    assert!(debug_str.contains("app"));
+
+    // Test Clone and PartialEq
+    assert_eq!(target1, target2);
+
+    // Test inequality
+    let target3 = PythonHandlerTarget {
+      file: "different".to_string(),
+      function: "app".to_string(),
+    };
+    assert_ne!(target1, target3);
+
+    // Test Hash by putting in a HashSet
+    use std::collections::HashSet;
+    let mut set = HashSet::new();
+    set.insert(target1);
+    set.insert(target2); // Should not increase size due to equality
+    assert_eq!(set.len(), 1);
   }
 }

@@ -762,6 +762,7 @@ dependencies = [
  "bytes",
  "http-handler",
  "http-rewriter",
+ "libc",
  "napi",
  "napi-build",
  "napi-derive",
