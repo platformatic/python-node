@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "fix-python-soname"]
+resolver = "2"
+
 [package]
 name = "python-node"
 version = "1.0.0"

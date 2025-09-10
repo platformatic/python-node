@@ -22,6 +22,11 @@ use tokio::sync::oneshot;
 
 use crate::{HandlerError, PythonHandlerTarget};
 
+/// HTTP response tuple: (status_code, headers, body)
+type HttpResponse = (u16, Vec<(String, String)>, Vec<u8>);
+/// Result type for HTTP response operations
+type HttpResponseResult = Result<HttpResponse, HandlerError>;
+
 /// Global runtime for when no tokio runtime is available
 static FALLBACK_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -413,7 +418,7 @@ fn start_python_event_loop_thread(event_loop: PyObject) {
 /// Collect ASGI response messages
 async fn collect_response_messages(
   mut tx_receiver: tokio::sync::mpsc::UnboundedReceiver<AcknowledgedMessage<HttpSendMessage>>,
-  response_tx: oneshot::Sender<Result<(u16, Vec<(String, String)>, Vec<u8>), HandlerError>>,
+  response_tx: oneshot::Sender<HttpResponseResult>,
 ) {
   let mut status = 500u16;
   let mut headers = Vec::new();
