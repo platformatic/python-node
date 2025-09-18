@@ -1,3 +1,3 @@
-# `python-node-linux-x64-gnu`
+# `python-node-linux-arm64-gnu`
 
-This is the **x86_64-unknown-linux-gnu** binary for `python-node`
+This is the **aarch64-unknown-linux-gnu** binary for `python-node`
