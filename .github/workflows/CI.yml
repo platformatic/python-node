@@ -37,13 +37,22 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             build: pnpm run build --target x86_64-apple-darwin
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: pnpm run build --target aarch64-apple-darwin
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
             build: pnpm run build --target x86_64-unknown-linux-gnu
-          - host: macos-latest
-            target: aarch64-apple-darwin
-            build: pnpm run build --target aarch64-apple-darwin
+          # Need to deal with this build failure before we can enable arm64 Linux builds.
+          # Probably also should be public first so we can use the arm runners to test it anyway.
+          #   error: PYO3_CROSS_PYTHON_VERSION or an abi3-py3* feature must be specified when cross-compiling and PYO3_CROSS_LIB_DIR is not set.
+          #   help: see the PyO3 user guide for more information: https://pyo3.rs/v0.25.1/building-and-distribution.html#cross-compiling
+          #
+          # - host: ubuntu-latest
+          #   target: aarch64-unknown-linux-gnu
+          #   docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          #   build: pnpm run build --target aarch64-unknown-linux-gnu
     name: stable - ${{ matrix.settings.target }} - node@20
     runs-on: ${{ matrix.settings.host }}
     steps:
@@ -59,15 +68,13 @@ jobs:
       - uses: actions/setup-node@v4
         if: ${{ !matrix.settings.docker }}
         with:
-          node-version: 20
-      - name: Install
-        uses: dtolnay/rust-toolchain@stable
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index/
@@ -161,18 +168,32 @@ jobs:
           if-no-files-found: error
 
   test-macOS-windows-binding:
-    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
+    name: Test ${{ matrix.settings.target }} - node@${{ matrix.node }} + python@${{ matrix.python }}
     needs:
       - build
     strategy:
       fail-fast: false
       matrix:
         settings:
-          - host: macos-latest
+          - host: macos-13
             target: x86_64-apple-darwin
+            architecture: x64
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
         node:
           - '18'
           - '20'
+          - '22'
+          - '24'
+        python:
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
+          # - '3.14-rc'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -187,8 +208,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.settings.architecture }}
           cache: pnpm
-          architecture: x64
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.settings.architecture }}
       - run: pnpm install
       - uses: actions/download-artifact@v4
         with:
@@ -209,7 +234,7 @@ jobs:
       - run: pnpm test
 
   test-linux-binding:
-    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
+    name: Test ${{ matrix.settings.target }} - node@${{ matrix.node }} + python@${{ matrix.python }}
     needs:
       - build
     strategy:
@@ -218,6 +243,7 @@ jobs:
         settings:
           - host: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            architecture: x64
           # Not supported yet.
           # - host: ubuntu-22.04
           #   target: x86_64-unknown-linux-musl
@@ -229,6 +255,16 @@ jobs:
         node:
           - '18'
           - '20'
+          - '22'
+          - '24'
+        python:
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
+          # - '3.14-rc'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -239,7 +275,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.settings.architecture }}
           cache: pnpm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.settings.architecture }}
       - name: Install dependencies
         run: pnpm install
       - name: Fix soname

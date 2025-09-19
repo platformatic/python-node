@@ -35,6 +35,7 @@ pyo3 = { version = "0.25.1", features = ["experimental-async"] }
 pyo3-async-runtimes = { version = "0.25.0", features = ["tokio-runtime"] }
 thiserror = "2.0.12"
 tokio = { version = "1.45.1", features = ["full"] }
+libc = "0.2"
 
 [build-dependencies]
 napi-build = { version = "2", optional = true }
