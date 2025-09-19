@@ -9,5 +9,12 @@ rustfmt.toml
 yarn.lock
 *.node
 .yarn
-__test__
+src
+test
 renovate.json
+fix-python-soname
+artifacts
+build.rs
+rust-toolchain.toml
+CLAUDE.md
+Cargo.toml
