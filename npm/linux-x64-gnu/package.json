@@ -1,6 +1,6 @@
 {
-  "name": "python-node-linux-x64-gnu",
-  "version": "0.0.0",
+  "name": "@platformatic/python-node-linux-x64-gnu",
+  "version": "0.0.1",
   "os": [
     "linux"
   ],
@@ -15,6 +15,11 @@
   ],
   "scripts": {
     "postinstall": "node fix-python-soname.js"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "restricted",
+    "scope": "@platformatic"
   },
   "license": "MIT",
   "engines": {

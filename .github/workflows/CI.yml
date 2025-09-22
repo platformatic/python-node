@@ -387,17 +387,24 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    environment: npm
     needs:
       - test-macOS-windows-binding
       - test-linux-binding
     steps:
       - uses: actions/checkout@v4
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: |
+            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
+            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          registry-url: 'https://registry.npmjs.org'
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
@@ -431,21 +438,20 @@ jobs:
       - name: List packages
         run: ls -R ./npm
         shell: bash
+      - name: Update npm
+        run: npm install -g npm@latest
+      - name: Pack
+        if: ${{ !contains(github.ref, 'main') }}
+        run: npm pack
       - name: Publish
         if: contains(github.ref, 'main')
         run: |
-          npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN
-          npm config set scope "@platformatic"
-          # npm config set provenance true
           if git log -1 --pretty=%B | grep "^v\?[0-9]\+\.[0-9]\+\.[0-9]\+";
           then
-            npm publish --access public --dry-run
+            npm publish
           elif git log -1 --pretty=%B | grep "^v\?[0-9]\+\.[0-9]\+\.[0-9]\+-\.+";
           then
-            npm publish --tag next --access public --dry-run
+            npm publish
           else
             echo "Not a release, skipping publish"
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

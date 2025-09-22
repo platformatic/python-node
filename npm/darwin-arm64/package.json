@@ -1,6 +1,6 @@
 {
-  "name": "python-node-darwin-arm64",
-  "version": "0.0.0",
+  "name": "@platformatic/python-node-darwin-arm64",
+  "version": "0.0.1",
   "os": [
     "darwin"
   ],
@@ -11,6 +11,11 @@
   "files": [
     "python-node.darwin-arm64.node"
   ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "restricted",
+    "scope": "@platformatic"
+  },
   "license": "MIT",
   "engines": {
     "node": ">= 10"
