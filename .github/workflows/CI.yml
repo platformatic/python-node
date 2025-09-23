@@ -388,6 +388,10 @@ jobs:
     name: Publish
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    if: contains(github.ref, 'main')
     needs:
       - test-macOS-windows-binding
       - test-linux-binding
@@ -440,11 +444,9 @@ jobs:
         shell: bash
       - name: Update npm
         run: npm install -g npm@latest
-      - name: Pack
-        if: ${{ !contains(github.ref, 'main') }}
-        run: npm pack
       - name: Publish
-        if: contains(github.ref, 'main')
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           if git log -1 --pretty=%B | grep "^v\?[0-9]\+\.[0-9]\+\.[0-9]\+";
           then
@@ -455,3 +457,17 @@ jobs:
           else
             echo "Not a release, skipping publish"
           fi
+      - name: Collect npm logs
+        if: always()
+        run: |
+          mkdir -p npm-logs
+          if [ -d "$HOME/.npm/_logs" ]; then
+            cp -a "$HOME/.npm/_logs/." npm-logs/
+          fi
+      - name: Upload npm logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-logs
+          path: npm-logs
+          if-no-files-found: ignore

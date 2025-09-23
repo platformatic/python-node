@@ -16,5 +16,8 @@ fix-python-soname
 artifacts
 build.rs
 rust-toolchain.toml
+AGENTS.md
 CLAUDE.md
 Cargo.toml
+!index.js
+!index.d.ts
