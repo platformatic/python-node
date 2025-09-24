@@ -12,7 +12,7 @@ yarn.lock
 src
 test
 renovate.json
-fix-python-soname
+fix-python-soname*
 artifacts
 build.rs
 rust-toolchain.toml

@@ -1,7 +1,7 @@
 {
   "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
