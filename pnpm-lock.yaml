@@ -17,6 +17,16 @@ importers:
       oxlint:
         specifier: ^0.16.0
         version: 0.16.12
+    optionalDependencies:
+      '@platformatic/python-node-darwin-arm64':
+        specifier: ^0.1.4
+        version: 0.1.4
+      '@platformatic/python-node-darwin-x64':
+        specifier: ^0.1.4
+        version: 0.1.4
+      '@platformatic/python-node-linux-x64-gnu':
+        specifier: ^0.1.4
+        version: 0.1.4
 
 packages:
 
@@ -664,6 +674,24 @@ packages:
     resolution: {integrity: sha512-Ae1fx7wmAcMVqzS8rLINaFRpAdh29QzHh133bEYMHzfWBYyK/hLu9g4GLwC/lEIVQu9884b8qutGfdOk6Qia3w==}
     cpu: [x64]
     os: [win32]
+
+  '@platformatic/python-node-darwin-arm64@0.1.4':
+    resolution: {integrity: sha512-6L7GhZN3wKS8TpwpRF8JfM2+wi5eMPrYfzh6q2uDQnQ0WDH0a2p0iCoovYNPR9oy/e9Y8SDCYSJ1iXwrPToB2w==}
+    engines: {node: '>= 20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@platformatic/python-node-darwin-x64@0.1.4':
+    resolution: {integrity: sha512-fPpNKRycnpHjqyHnuX23qd/+UzT/4xab5hFotlrfIwqYErybZyCgJJv6zRugGzmw8pE0HkUzrnbeOzMw25jMvw==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@platformatic/python-node-linux-x64-gnu@0.1.4':
+    resolution: {integrity: sha512-qwZIN6nBVYBQphkTxuyuwaJx7OyxswzCmWVekgsfI7RGAMh6eXwtajBRqTTB0XhZ4eht2G3SUYo/xvM6QIUzeA==}
+    engines: {node: '>= 20'}
+    cpu: [x64]
+    os: [linux]
 
   '@tybys/wasm-util@0.10.0':
     resolution: {integrity: sha512-VyyPYFlOMNylG45GoAe0xDoLwWuowvf92F9kySqzYh8vmYm7D2u4iUJKa1tOUpS70Ku13ASrOkS4ScXFsTaCNQ==}
@@ -1367,6 +1395,15 @@ snapshots:
     optional: true
 
   '@oxlint/win32-x64@0.16.12':
+    optional: true
+
+  '@platformatic/python-node-darwin-arm64@0.1.4':
+    optional: true
+
+  '@platformatic/python-node-darwin-x64@0.1.4':
+    optional: true
+
+  '@platformatic/python-node-linux-x64-gnu@0.1.4':
     optional: true
 
   '@tybys/wasm-util@0.10.0':
