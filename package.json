@@ -1,7 +1,7 @@
 {
   "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -38,5 +38,10 @@
     "test": "node --test test/**.test.mjs",
     "universal": "napi universal",
     "version": "napi version"
+  },
+  "optionalDependencies": {
+    "@platformatic/python-node-darwin-arm64": "^0.1.4",
+    "@platformatic/python-node-darwin-x64": "^0.1.4",
+    "@platformatic/python-node-linux-x64-gnu": "^0.1.4"
   }
 }
