@@ -1,8 +1,7 @@
 {
   "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
-  "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -25,7 +24,7 @@
     "oxlint": "^0.16.0"
   },
   "engines": {
-    "node": ">= 10"
+    "node": ">= 20"
   },
   "scripts": {
     "artifacts": "napi artifacts",
