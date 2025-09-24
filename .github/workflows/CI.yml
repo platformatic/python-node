@@ -416,6 +416,23 @@ jobs:
           path: artifacts
       - name: Move artifacts
         run: pnpm artifacts
+      - name: Restore entrypoints
+        run: |
+          INDEX_JS=$(find artifacts -name "index.js" | head -n 1)
+          INDEX_D_TS=$(find artifacts -name "index.d.ts" | head -n 1)
+
+          if [ -n "$INDEX_JS" ] && [ -n "$INDEX_D_TS" ]; then
+            echo "Found index.js: $INDEX_JS"
+            echo "Found index.d.ts: $INDEX_D_TS"
+
+            echo "Copying entrypoints to project root"
+            cp "$INDEX_JS" index.js
+            cp "$INDEX_D_TS" index.d.ts
+          else
+            echo "Error: entrypoints not found in artifacts" >&2
+            exit 1
+          fi
+        shell: bash
       - name: Copy fix-python-soname files to Linux packages
         run: |
           # Find the WASM and JS files from Linux artifacts
@@ -435,10 +452,11 @@ jobs:
               fi
             done
           else
-            echo "Warning: fix-python-soname files not found in artifacts"
+            echo "Error: fix-python-soname files not found in artifacts" >&2
+            exit 1
           fi
-      - name: List packages
-        run: ls -R ./npm
+      - name: List project files
+        run: ls -R .
         shell: bash
       - name: Update npm
         run: npm install -g npm@latest
