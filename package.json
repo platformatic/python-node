@@ -1,7 +1,7 @@
 {
   "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -30,10 +30,8 @@
     "artifacts": "napi artifacts",
     "build": "npm run build:debug -- --release",
     "build:debug": "napi build --platform --features napi-support",
-    "build:fix": "node fix-python-soname.js",
     "build:wasm": "rustup target add wasm32-wasip1 && cargo build --package fix-python-soname --target wasm32-wasip1 --release && cp target/wasm32-wasip1/release/fix-python-soname.wasm .",
     "prepublishOnly": "npm run build:wasm && napi prepublish -t npm",
-    "postinstall": "npm run build:fix",
     "lint": "oxlint",
     "test": "node --test test/**.test.mjs",
     "universal": "napi universal",
