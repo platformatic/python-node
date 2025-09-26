@@ -9,8 +9,13 @@
   ],
   "main": "python-node.darwin-x64.node",
   "files": [
-    "python-node.darwin-x64.node"
+    "python-node.darwin-x64.node",
+    "fix-python-soname.js",
+    "fix-python-soname.wasm"
   ],
+  "scripts": {
+    "postinstall": "node fix-python-soname.js"
+  },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "restricted",

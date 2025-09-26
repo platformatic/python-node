@@ -29,7 +29,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            fix-python-soname
+          sparse-checkout-cone-mode: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache
+            target/
+          key: wasm-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build WASM
+        working-directory: fix-python-soname
+        run: |
+          cargo build --target wasm32-wasip1 --release
+          cp target/wasm32-wasip1/release/fix-python-soname.wasm ../fix-python-soname.wasm
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-bindings
+          path: fix-python-soname.wasm
+
   build:
+    needs: build-wasm
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +91,11 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
+      - name: Download WASM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-bindings
+          path: .
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: |
@@ -149,7 +188,6 @@ jobs:
             git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
             git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
-            npm run build:wasm
             ${{ matrix.settings.build }}
       - name: Build
         run: ${{ matrix.settings.build }}
@@ -431,7 +469,7 @@ jobs:
             exit 1
           fi
         shell: bash
-      - name: Copy fix-python-soname files to Linux packages
+      - name: Copy fix-python-soname files to Linux and macOS packages
         run: |
           # Find the WASM and JS files from Linux artifacts
           WASM_FILE=$(find artifacts -name "fix-python-soname.wasm" | head -n 1)
@@ -441,9 +479,9 @@ jobs:
             echo "Found WASM file: $WASM_FILE"
             echo "Found JS file: $JS_FILE"
 
-            # Copy to all Linux npm directories
+            # Copy to all Linux and macOS npm directories
             for dir in npm/*/; do
-              if [[ "$dir" == *"linux"* ]]; then
+              if [[ "$dir" == *"linux"* ]] || [[ "$dir" == *"darwin"* ]]; then
                 echo "Copying files to $dir"
                 cp "$WASM_FILE" "$dir"
                 cp "$JS_FILE" "$dir"

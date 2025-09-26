@@ -1,10 +1,165 @@
 use arwen::elf::ElfContainer;
+use arwen::macho::MachoContainer;
 use std::{
   collections::HashMap,
   env,
   fs::{self, File},
   path::Path,
 };
+
+fn is_elf_binary(file_contents: &[u8]) -> bool {
+  file_contents.len() >= 4 && &file_contents[0..4] == b"\x7fELF"
+}
+
+fn is_macho_binary(file_contents: &[u8]) -> bool {
+  if file_contents.len() < 4 {
+    return false;
+  }
+
+  let magic = u32::from_ne_bytes([
+    file_contents[0],
+    file_contents[1],
+    file_contents[2],
+    file_contents[3],
+  ]);
+
+  // Mach-O magic numbers
+  magic == 0xfeedface || // 32-bit
+  magic == 0xfeedfacf || // 64-bit
+  magic == 0xcafebabe || // Fat binary
+  magic == 0xcefaedfe || // 32-bit swapped
+  magic == 0xcffaedfe // 64-bit swapped
+}
+
+fn find_python_library_macos() -> Result<String, String> {
+  eprintln!("fix-python-soname: Looking for Python framework on macOS...");
+
+  // Python versions from 3.20 down to 3.8
+  let mut python_versions = Vec::new();
+  for major in (8..=20).rev() {
+    // Framework paths (highest priority)
+    python_versions.push(format!("Python.framework/Versions/3.{}/Python", major));
+  }
+
+  eprintln!(
+    "fix-python-soname: Looking for versions: {:?}",
+    &python_versions[0..6]
+  );
+
+  // macOS Python search paths (ordered by priority)
+  let mut lib_paths = vec![
+    // Homebrew paths (most common first)
+    "/opt/homebrew/opt/python@3.13/Frameworks",
+    "/opt/homebrew/opt/python@3.12/Frameworks",
+    "/opt/homebrew/opt/python@3.11/Frameworks",
+    "/opt/homebrew/opt/python@3.10/Frameworks",
+    "/opt/homebrew/opt/python@3.9/Frameworks",
+    "/opt/homebrew/opt/python@3.8/Frameworks",
+    // Intel Mac Homebrew
+    "/usr/local/opt/python@3.13/Frameworks",
+    "/usr/local/opt/python@3.12/Frameworks",
+    "/usr/local/opt/python@3.11/Frameworks",
+    "/usr/local/opt/python@3.10/Frameworks",
+    "/usr/local/opt/python@3.9/Frameworks",
+    "/usr/local/opt/python@3.8/Frameworks",
+    // System Python frameworks
+    "/Library/Frameworks",
+    "/System/Library/Frameworks",
+  ];
+
+  // Check for active virtual environments first
+  if let Ok(venv) = env::var("VIRTUAL_ENV") {
+    let venv_fw = format!("{}/Frameworks", venv);
+    lib_paths.insert(0, Box::leak(venv_fw.into_boxed_str()));
+  }
+
+  // Add user-specific paths
+  if let Ok(home) = env::var("HOME") {
+    // pyenv installations
+    let pyenv_versions = format!("{}/.pyenv/versions", home);
+    if let Ok(entries) = fs::read_dir(&pyenv_versions) {
+      for entry in entries.flatten() {
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+          let version_fw = format!("{}/Frameworks", entry.path().display());
+          lib_paths.push(Box::leak(version_fw.into_boxed_str()));
+        }
+      }
+    }
+  }
+
+  eprintln!(
+    "fix-python-soname: Searching in {} framework directories...",
+    lib_paths.len()
+  );
+
+  // First try exact version matches
+  for lib_name in &python_versions {
+    for lib_path in &lib_paths {
+      let full_path = format!("{}/{}", lib_path, lib_name);
+      if std::path::Path::new(&full_path).exists() {
+        eprintln!(
+          "fix-python-soname: Found Python framework: {} at {}",
+          lib_name, full_path
+        );
+        return Ok(full_path);
+      }
+    }
+  }
+
+  eprintln!("fix-python-soname: No exact match found, searching for any Python.framework...");
+
+  // If no exact match found, search directories for any Python frameworks
+  for lib_path in &lib_paths {
+    if let Ok(entries) = fs::read_dir(lib_path) {
+      let mut found_frameworks: Vec<(String, u32, u32)> = Vec::new();
+
+      for entry in entries.flatten() {
+        if let Some(name) = entry.file_name().to_str() {
+          if name == "Python.framework" {
+            // Check for version directories
+            let versions_dir = entry.path().join("Versions");
+            if let Ok(version_entries) = fs::read_dir(&versions_dir) {
+              for version_entry in version_entries.flatten() {
+                if let Some(version_name) = version_entry.file_name().to_str() {
+                  if let Some(version_start) = version_name.find("3.") {
+                    let version_part = &version_name[version_start + 2..];
+                    if let Ok(minor) = version_part.parse::<u32>() {
+                      let python_path = version_entry.path().join("Python");
+                      if python_path.exists() {
+                        found_frameworks.push((
+                          python_path.to_string_lossy().to_string(),
+                          3,
+                          minor,
+                        ));
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Sort by version (newest first)
+      found_frameworks.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+
+      if let Some((framework_path, _, _)) = found_frameworks.first() {
+        eprintln!(
+          "fix-python-soname: Found Python framework: {} in {}",
+          framework_path, lib_path
+        );
+        return Ok(framework_path.clone());
+      }
+    }
+  }
+
+  Err(
+    "No Python framework found on the system. Searched in:\n".to_string()
+      + &lib_paths[..10].join("\n  ")
+      + "\n  ... and more",
+  )
+}
 
 fn find_python_library() -> Result<String, String> {
   // Generate Python versions from 3.20 down to 3.8
@@ -265,7 +420,7 @@ fn find_python_library() -> Result<String, String> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-  eprintln!("fix-python-soname: Starting soname patcher...");
+  eprintln!("fix-python-soname: Starting binary patcher...");
 
   let args: Vec<String> = env::args().collect();
   eprintln!("fix-python-soname: Arguments: {:?}", args);
@@ -277,22 +432,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let node_file_path = &args[1];
   eprintln!("fix-python-soname: Processing file: {}", node_file_path);
 
-  // Find the local Python library
-  let new_python_lib = find_python_library()?;
-
-  // Read the file
-  eprintln!("fix-python-soname: Reading ELF file...");
+  // Read the file first to detect format
+  eprintln!("fix-python-soname: Reading binary file...");
   let file_contents =
     fs::read(node_file_path).map_err(|error| format!("Failed to read file: {error}"))?;
   eprintln!(
-    "fix-python-soname: ELF file size: {} bytes",
+    "fix-python-soname: Binary file size: {} bytes",
     file_contents.len()
   );
+
+  // Detect binary format and process accordingly
+  if is_elf_binary(&file_contents) {
+    eprintln!("fix-python-soname: Detected ELF binary (Linux)");
+    process_elf_binary(&file_contents, node_file_path)
+  } else if is_macho_binary(&file_contents) {
+    eprintln!("fix-python-soname: Detected Mach-O binary (macOS)");
+    process_macho_binary(&file_contents, node_file_path)
+  } else {
+    Err("Unsupported binary format. Only ELF (Linux) and Mach-O (macOS) are supported.".into())
+  }
+}
+
+fn process_elf_binary(
+  file_contents: &[u8],
+  node_file_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  // Find the local Python library (Linux)
+  let new_python_lib = find_python_library()?;
 
   // Parse the ELF file
   eprintln!("fix-python-soname: Parsing ELF file...");
   let mut elf =
-    ElfContainer::parse(&file_contents).map_err(|error| format!("Failed to parse ELF: {error}"))?;
+    ElfContainer::parse(file_contents).map_err(|error| format!("Failed to parse ELF: {error}"))?;
 
   // Get the list of needed libraries
   eprintln!("fix-python-soname: Getting needed libraries...");
@@ -351,6 +522,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   elf
     .write(&output_file)
     .map_err(|error| format!("Failed to write ELF: {error}"))?;
+
+  eprintln!(
+    "fix-python-soname: Successfully updated: {}",
+    node_file_path
+  );
+
+  Ok(())
+}
+
+fn process_macho_binary(
+  file_contents: &[u8],
+  node_file_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+  // Find the local Python framework (macOS)
+  let new_python_framework = find_python_library_macos()?;
+
+  // Parse the Mach-O file
+  eprintln!("fix-python-soname: Parsing Mach-O file...");
+  let mut macho = MachoContainer::parse(file_contents)
+    .map_err(|error| format!("Failed to parse Mach-O: {error}"))?;
+
+  // Get the list of linked libraries (equivalent to needed libs on ELF)
+  eprintln!("fix-python-soname: Getting linked libraries...");
+
+  // Access the libs field based on the macho type
+  let libs = match &macho.inner {
+    arwen::macho::MachoType::SingleArch(single) => &single.inner.libs,
+    arwen::macho::MachoType::Fat(fat) => {
+      if fat.archs.is_empty() {
+        return Err("No architectures found in fat binary".into());
+      }
+      &fat.archs[0].inner.inner.libs // Use first architecture
+    }
+  };
+
+  eprintln!("fix-python-soname: Linked libraries: {:?}", libs);
+
+  // Find the existing Python framework dependency
+  let python_framework = libs
+    .iter()
+    .find(|lib| lib.contains("Python.framework") || lib.contains("Python"))
+    .ok_or("No Python framework dependency found in the binary")?;
+
+  eprintln!(
+    "fix-python-soname: Current Python framework: {}",
+    python_framework
+  );
+
+  // Check if already pointing to the correct framework
+  if python_framework == &new_python_framework {
+    eprintln!("fix-python-soname: Already using the correct Python framework");
+    return Ok(());
+  }
+
+  eprintln!(
+    "fix-python-soname: Replacing with: {}",
+    new_python_framework
+  );
+
+  // Use change_install_name to replace the Python framework path
+  eprintln!("fix-python-soname: Changing install name...");
+  macho
+    .change_install_name(python_framework, &new_python_framework)
+    .map_err(|error| format!("Failed to change install name: {error}"))?;
+
+  // Create backup
+  let file_path = Path::new(node_file_path);
+  let backup_path = file_path.with_extension("node.bak");
+  eprintln!(
+    "fix-python-soname: Creating backup at: {}",
+    backup_path.display()
+  );
+  fs::copy(file_path, &backup_path).map_err(|error| format!("Failed to create backup: {error}"))?;
+  eprintln!("fix-python-soname: Backup created successfully");
+
+  // Write the modified file
+  eprintln!("fix-python-soname: Writing modified Mach-O file...");
+  fs::write(node_file_path, &macho.data)
+    .map_err(|error| format!("Failed to write Mach-O: {error}"))?;
 
   eprintln!(
     "fix-python-soname: Successfully updated: {}",

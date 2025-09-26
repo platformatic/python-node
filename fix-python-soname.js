@@ -42,22 +42,24 @@ function isDevInstall() {
   return false
 }
 
-// Only patch soname on Linux
-if (platform !== 'linux') {
+// Only patch on Linux and macOS
+if (platform !== 'linux' && platform !== 'darwin') {
   console.log(`No need to fix soname on platform: ${platform}`)
   process.exit(0)
 }
 
-// Get the node file path
-const nodeFilePath = path.join(__dirname, `python-node.linux-${arch}-gnu.node`)
+// Get the node file path based on platform
+const nodeFilePath = platform === 'linux'
+  ? path.join(__dirname, `python-node.linux-${arch}-gnu.node`)
+  : path.join(__dirname, `python-node.darwin-${arch}.node`)
 if (!fs.existsSync(nodeFilePath)) {
   if (isDevInstall()) {
     // No .node file found during dev install - this is expected, skip silently
-    console.log(`${nodeFilePath} not found during development install, skipping soname fix`)
+    console.log(`${nodeFilePath} not found during development install, skipping binary patching`)
     process.exit(0)
   } else {
     // No .node file found when installed as dependency - this is an error
-    console.error(`Error: Could not find "${nodeFilePath}" to fix soname`)
+    console.error(`Error: Could not find "${nodeFilePath}" to patch binary`)
     process.exit(1)
   }
 }
@@ -67,7 +69,7 @@ const wasmPath = path.join(__dirname, 'fix-python-soname.wasm')
 if (!fs.existsSync(wasmPath)) {
   if (isDevInstall()) {
     // WASM file not found during dev install - this is expected, skip with warning
-    console.log('WASM file not found during development install, skipping soname fix')
+    console.log('WASM file not found during development install, skipping binary patching')
     process.exit(0)
   } else {
     // WASM file not found when installed as dependency - this is an error
@@ -76,7 +78,7 @@ if (!fs.existsSync(wasmPath)) {
   }
 }
 
-console.log(`Running soname fix on ${nodeFilePath}`)
+console.log(`Running binary patch on ${nodeFilePath}`)
 
 // Create a WASI instance
 const wasi = new WASI({
