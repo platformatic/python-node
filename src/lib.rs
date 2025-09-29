@@ -8,9 +8,8 @@
 #![warn(clippy::dbg_macro, clippy::print_stdout)]
 #![warn(missing_docs)]
 
-use std::ffi::c_char;
 #[cfg(feature = "napi-support")]
-use std::sync::Arc;
+use std::{ffi::c_char, sync::Arc};
 
 #[cfg(feature = "napi-support")]
 use http_handler::napi::{Request as NapiRequest, Response as NapiResponse};
@@ -345,6 +344,16 @@ pub enum HandlerError {
   /// Error when PYTHON_NODE_WORKERS is invalid
   #[error("Invalid PYTHON_NODE_WORKERS count: {0}")]
   InvalidWorkerCount(#[from] std::num::ParseIntError),
+
+  /// Error when a lock is poisoned
+  #[error("Lock poisoned: {0}")]
+  LockPoisoned(String),
+}
+
+impl<T> From<std::sync::PoisonError<T>> for HandlerError {
+  fn from(err: std::sync::PoisonError<T>) -> Self {
+    HandlerError::LockPoisoned(err.to_string())
+  }
 }
 
 #[cfg(feature = "napi-support")]

@@ -93,12 +93,12 @@ fn ensure_python_event_loop() -> Result<Arc<EventLoopHandle>, HandlerError> {
   let weak_handle = PYTHON_EVENT_LOOP.get_or_init(|| RwLock::new(Weak::new()));
 
   // Try to upgrade the weak reference
-  if let Some(handle) = weak_handle.read().unwrap().upgrade() {
+  if let Some(handle) = weak_handle.read()?.upgrade() {
     return Ok(handle);
   }
 
   // Need write lock to create new handle
-  let mut guard = weak_handle.write().unwrap();
+  let mut guard = weak_handle.write()?;
 
   // Double-check in case another thread created it
   if let Some(handle) = guard.upgrade() {
