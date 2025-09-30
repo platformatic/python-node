@@ -62,12 +62,12 @@ pub use websocket::{
 
 /// Handle to a shared Python event loop
 pub struct EventLoopHandle {
-  event_loop: PyObject,
+  event_loop: Py<PyAny>,
 }
 
 impl EventLoopHandle {
   /// Get the Python event loop object
-  pub fn event_loop(&self) -> &PyObject {
+  pub fn event_loop(&self) -> &Py<PyAny> {
     &self.event_loop
   }
 }
@@ -75,7 +75,7 @@ impl EventLoopHandle {
 impl Drop for EventLoopHandle {
   fn drop(&mut self) {
     // Stop the Python event loop when the last handle is dropped
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       if let Err(e) = self.event_loop.bind(py).call_method0("stop") {
         eprintln!("Failed to stop Python event loop: {e}");
       }
@@ -111,10 +111,10 @@ fn create_event_loop_handle() -> Result<EventLoopHandle, HandlerError> {
   ensure_python_symbols_global();
 
   // Initialize Python if not already initialized
-  pyo3::prepare_freethreaded_python();
+  Python::initialize();
 
   // Create event loop
-  let event_loop = Python::with_gil(|py| -> Result<PyObject, HandlerError> {
+  let event_loop = Python::attach(|py| -> Result<Py<PyAny>, HandlerError> {
     let asyncio = py.import("asyncio")?;
     let event_loop = asyncio.call_method0("new_event_loop")?;
     let event_loop_py = event_loop.unbind();
@@ -139,7 +139,7 @@ pub struct Asgi {
   // Shared Python event loop handle
   event_loop_handle: Arc<EventLoopHandle>,
   // ASGI app function
-  app_function: PyObject,
+  app_function: Py<PyAny>,
 }
 
 unsafe impl Send for Asgi {}
@@ -160,7 +160,7 @@ impl Asgi {
     let event_loop_handle = ensure_python_event_loop()?;
 
     // Load Python app
-    let app_function = Python::with_gil(|py| -> Result<PyObject, HandlerError> {
+    let app_function = Python::attach(|py| -> Result<Py<PyAny>, HandlerError> {
       // Load and compile Python module
       let entrypoint = docroot
         .join(format!("{}.py", target.file))
@@ -241,7 +241,7 @@ impl Handler for Asgi {
     tokio::spawn(collect_response_messages(tx_receiver, response_tx));
 
     // Submit the ASGI app call to Python event loop
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let scope_py = scope.into_pyobject(py)?;
       let coro = self
         .app_function
@@ -361,8 +361,8 @@ fn setup_python_paths(py: Python, docroot: &Path) -> PyResult<()> {
 }
 
 /// Start a Python thread that runs the event loop forever
-fn start_python_event_loop_thread(event_loop: PyObject) {
-  Python::with_gil(|py| {
+fn start_python_event_loop_thread(event_loop: Py<PyAny>) {
+  Python::attach(|py| {
     // Set the event loop for this thread and run it
     let asyncio = py.import("asyncio")?;
     asyncio.call_method1("set_event_loop", (event_loop.bind(py),))?;

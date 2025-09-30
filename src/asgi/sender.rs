@@ -52,12 +52,12 @@ impl Sender {
 
 #[pymethods]
 impl Sender {
-  async fn __call__(&mut self, args: Py<PyDict>) -> PyResult<PyObject> {
+  async fn __call__(&mut self, args: Py<PyDict>) -> PyResult<Py<PyAny>> {
     // Create acknowledgment channel
     let (ack_tx, ack_rx) = oneshot::channel::<()>();
 
     // Send message with acknowledgment channel
-    let send_result: PyResult<()> = Python::with_gil(|py| {
+    let send_result: PyResult<()> = Python::attach(|py| {
       let args_dict = args.bind(py);
       match &self.0 {
         SenderType::Http(tx) => {
@@ -95,7 +95,7 @@ impl Sender {
 
     // Wait for acknowledgment
     match ack_rx.await {
-      Ok(()) => Python::with_gil(|py| Ok(py.None())),
+      Ok(()) => Python::attach(|py| Ok(py.None())),
       Err(_) => Err(PyValueError::new_err("message not acknowledged")),
     }
   }

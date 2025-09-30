@@ -119,7 +119,7 @@ mod tests {
 
   #[test]
   fn test_http_method_pyobject_conversion() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let tests = vec![
         (HttpMethod::Get, "GET"),
         (HttpMethod::Post, "POST"),

@@ -50,7 +50,7 @@ impl Receiver {
       ReceiverType::Http(rx) => {
         let message = rx.lock().await.recv().await;
         if let Some(msg) = message {
-          Python::with_gil(|py| Ok(msg.into_pyobject(py)?.unbind()))
+          Python::attach(|py| Ok(msg.into_pyobject(py)?.unbind()))
         } else {
           Err(PyValueError::new_err("No message received"))
         }
@@ -58,7 +58,7 @@ impl Receiver {
       ReceiverType::WebSocket(rx) => {
         let message = rx.lock().await.recv().await;
         if let Some(msg) = message {
-          Python::with_gil(|py| Ok(msg.into_pyobject(py)?.unbind()))
+          Python::attach(|py| Ok(msg.into_pyobject(py)?.unbind()))
         } else {
           Err(PyValueError::new_err("No message received"))
         }
@@ -66,7 +66,7 @@ impl Receiver {
       ReceiverType::Lifespan(rx) => {
         let message = rx.lock().await.recv().await;
         if let Some(msg) = message {
-          Python::with_gil(|py| Ok(msg.into_pyobject(py)?.unbind()))
+          Python::attach(|py| Ok(msg.into_pyobject(py)?.unbind()))
         } else {
           Err(PyValueError::new_err("No message received"))
         }

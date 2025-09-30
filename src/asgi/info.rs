@@ -73,7 +73,7 @@ mod tests {
 
   #[test]
   fn test_asgi_info_pyobject_conversion() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let asgi_info = AsgiInfo::new("3.0", "2.5");
 
       // Convert AsgiInfo to PyObject

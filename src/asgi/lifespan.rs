@@ -107,7 +107,7 @@ mod tests {
 
   #[test]
   fn test_lifespan_scope_into_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let lifespan_scope = LifespanScope { state: None };
       let py_obj = lifespan_scope.into_pyobject(py).unwrap();
       assert_eq!(
@@ -129,7 +129,7 @@ mod tests {
 
   #[test]
   fn test_lifespan_receive_message_into_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let message = LifespanReceiveMessage::LifespanStartup;
       let py_obj = message.into_pyobject(py).unwrap();
       assert_eq!(
@@ -148,7 +148,7 @@ mod tests {
 
   #[test]
   fn test_lifespan_send_message_from_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let dict = PyDict::new(py);
       dict.set_item("type", "lifespan.shutdown.complete").unwrap();
       let message: LifespanSendMessage = dict.extract().unwrap();
@@ -163,7 +163,7 @@ mod tests {
 
   #[test]
   fn test_lifespan_send_message_from_pyobject_error_cases() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       // Test missing 'type' key
       let dict = PyDict::new(py);
       let result: Result<LifespanSendMessage, _> = dict.extract();
@@ -261,7 +261,7 @@ mod tests {
 
   #[test]
   fn test_lifespan_scope_with_populated_state() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       // Create a state dictionary with some data
       let state_dict = PyDict::new(py);
       state_dict.set_item("initialized", true).unwrap();
