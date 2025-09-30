@@ -98,7 +98,26 @@ async function runSonameFixer() {
     });
 
     // Run the WASI module
-    process.exit(wasi.start(instance))
+    const exitCode = wasi.start(instance)
+    if (exitCode !== 0) {
+      console.error(`Error: soname fixer exited with code ${exitCode}`)
+      process.exit(exitCode)
+    }
+
+    // On macOS, re-sign the binary after patching
+    if (platform === 'darwin') {
+      console.log('Re-signing binary after patching...')
+      const { execSync } = require('child_process')
+      try {
+        execSync(`codesign --force --sign - "${nodeFilePath}"`, { stdio: 'inherit' })
+        console.log('Binary re-signed successfully')
+      } catch (error) {
+        console.error('Warning: Failed to re-sign binary:', error.message)
+        // Don't fail the install if codesign fails - the binary might still work
+      }
+    }
+
+    process.exit(0)
   } catch (error) {
     console.error('Error: Failed to run soname fixer:', error.message)
     process.exit(1) // Fail hard when installed as dependency
