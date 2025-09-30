@@ -527,8 +527,8 @@ mod tests {
 
   #[test]
   fn test_http_connection_scope_into_pyobject() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
       let scope = HttpConnectionScope {
         http_version: HttpVersion::V1_1,
         method: HttpMethod::Get,
@@ -577,8 +577,8 @@ mod tests {
 
   #[test]
   fn test_http_receive_message_into_pyobject() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
       let message = HttpReceiveMessage::Request {
         body: vec![1, 2, 3],
         more_body: true,
@@ -596,8 +596,8 @@ mod tests {
 
   #[test]
   fn test_http_send_message_from_pyobject() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
       let dict = PyDict::new(py);
       dict.set_item("type", "http.response.start").unwrap();
       dict.set_item("status", 200).unwrap();

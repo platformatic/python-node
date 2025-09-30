@@ -302,7 +302,7 @@ mod tests {
 
   #[test]
   fn test_websocket_connection_scope_into_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let scope = WebSocketConnectionScope {
         http_version: HttpVersion::V2_0,
         scheme: "ws".to_string(),
@@ -353,7 +353,7 @@ mod tests {
 
   #[test]
   fn test_websocket_receive_message_into_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let connect_msg = WebSocketReceiveMessage::Connect;
       let dict = connect_msg.into_pyobject(py).unwrap();
       assert_eq!(
@@ -398,7 +398,7 @@ mod tests {
 
   #[test]
   fn test_websocket_send_message_from_pyobject() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let dict = PyDict::new(py);
       dict.set_item("type", "websocket.accept").unwrap();
       dict.set_item("subprotocol", "chat").unwrap();

@@ -71,7 +71,7 @@ mod tests {
 
   #[test]
   fn test_http_version_pyobject_conversion() {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
       let tests = vec![
         (HttpVersion::V1_0, "1.0"),
         (HttpVersion::V1_1, "1.1"),
