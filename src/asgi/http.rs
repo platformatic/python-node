@@ -154,8 +154,8 @@ impl<'py> IntoPyObject<'py> for HttpConnectionScope {
     dict.set_item("method", self.method.into_pyobject(py)?)?;
     dict.set_item("scheme", self.scheme)?;
     dict.set_item("path", self.path)?;
-    dict.set_item("raw_path", self.raw_path)?;
-    dict.set_item("query_string", self.query_string)?;
+    dict.set_item("raw_path", self.raw_path.as_bytes())?;
+    dict.set_item("query_string", self.query_string.as_bytes())?;
     dict.set_item("root_path", self.root_path)?;
     dict.set_item("headers", self.headers.into_pyobject(py)?)?;
     if let Some((host, port)) = self.client {
@@ -355,10 +355,7 @@ impl<'py> FromPyObject<'py> for HttpSendMessage {
         })
       }
       "http.response.body" => {
-        let body: Vec<u8> = dict
-          .get_item("body")?
-          .ok_or_else(|| PyValueError::new_err("Missing 'body' key in HTTP response body message"))?
-          .extract()?;
+        let body: Vec<u8> = dict.get_item("body")?.map_or(Ok(vec![]), |v| v.extract())?;
 
         let more_body: bool = dict
           .get_item("more_body")?
@@ -562,8 +559,8 @@ mod tests {
       );
       assert_eq!(dict_extract!(py_scope, "scheme", String), "http");
       assert_eq!(dict_extract!(py_scope, "path", String), "");
-      assert_eq!(dict_extract!(py_scope, "raw_path", String), "");
-      assert_eq!(dict_extract!(py_scope, "query_string", String), "");
+      assert_eq!(dict_extract!(py_scope, "raw_path", Vec<u8>), b"");
+      assert_eq!(dict_extract!(py_scope, "query_string", Vec<u8>), b"");
       assert_eq!(dict_extract!(py_scope, "root_path", String), "");
       assert_eq!(
         dict_extract!(py_scope, "headers", Vec<(String, String)>),

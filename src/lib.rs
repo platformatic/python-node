@@ -348,6 +348,10 @@ pub enum HandlerError {
   /// Error when a lock is poisoned
   #[error("Lock poisoned: {0}")]
   LockPoisoned(String),
+
+  /// Error when a Tokio task fails
+  #[error("Tokio task error: {0}")]
+  TokioError(String),
 }
 
 impl<T> From<std::sync::PoisonError<T>> for HandlerError {
