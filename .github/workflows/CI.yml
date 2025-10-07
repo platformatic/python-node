@@ -4,7 +4,6 @@ env:
   DEBUG: napi:*
   APP_NAME: python-node
   MACOSX_DEPLOYMENT_TARGET: '10.13'
-  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
 
 permissions:
   contents: write
@@ -96,11 +95,6 @@ jobs:
         with:
           name: wasm-bindings
           path: .
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
-            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
@@ -141,8 +135,6 @@ jobs:
           run: |
             set -x
 
-            export CARGO_NET_GIT_FETCH_WITH_CLI=true
-
             # Install apt dependencies
             apt-get update -y
             apt-get install -y openssh-client python3 python3-dev
@@ -150,43 +142,6 @@ jobs:
             # Setup pnpm
             corepack disable
             npm i -gf pnpm
-
-            # Set up SSH keys (to checkout private repos with cargo)
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-
-            # Save SSH keys to files
-            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_handler_key
-            echo "${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_rewriter_key
-            chmod 600 ~/.ssh/http_handler_key
-            chmod 600 ~/.ssh/http_rewriter_key
-
-            # Add GitHub to known hosts (for all aliases)
-            ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-
-            # Create SSH config with host aliases
-            cat > ~/.ssh/config <<'EOF'
-            Host github.com-http-handler
-              HostName github.com
-              User git
-              IdentityFile ~/.ssh/http_handler_key
-              IdentitiesOnly yes
-
-            Host github.com-http-rewriter
-              HostName github.com
-              User git
-              IdentityFile ~/.ssh/http_rewriter_key
-              IdentitiesOnly yes
-            EOF
-            chmod 600 ~/.ssh/config
-
-            # Configure git to rewrite URLs to use the correct host alias
-            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler".insteadOf "ssh://git@github.com/platformatic/http-handler"
-            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter".insteadOf "ssh://git@github.com/platformatic/http-rewriter"
-
-            # Also handle variations without .git suffix
-            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
-            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
             ${{ matrix.settings.build }}
       - name: Build
@@ -234,11 +189,6 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
-            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
@@ -354,8 +304,6 @@ jobs:
           run: |
             set -x
 
-            export CARGO_NET_GIT_FETCH_WITH_CLI=true
-
             # Install apt dependencies
             apt-get update -y
             apt-get install -y openssh-client curl git build-essential python3 python3-dev
@@ -363,43 +311,6 @@ jobs:
             # Install rust toolchain
             curl https://sh.rustup.rs -sSf | bash -s -- -y -t ${{ matrix.settings.target }}
             . "$HOME/.cargo/env"
-
-            # Set up SSH keys (to checkout private repos with cargo)
-            mkdir -p ~/.ssh
-            chmod 700 ~/.ssh
-
-            # Save SSH keys to files
-            echo "${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_handler_key
-            echo "${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}" | tr -d '\r' > ~/.ssh/http_rewriter_key
-            chmod 600 ~/.ssh/http_handler_key
-            chmod 600 ~/.ssh/http_rewriter_key
-
-            # Add GitHub to known hosts (for all aliases)
-            ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-
-            # Create SSH config with host aliases
-            cat > ~/.ssh/config <<'EOF'
-            Host github.com-http-handler
-              HostName github.com
-              User git
-              IdentityFile ~/.ssh/http_handler_key
-              IdentitiesOnly yes
-
-            Host github.com-http-rewriter
-              HostName github.com
-              User git
-              IdentityFile ~/.ssh/http_rewriter_key
-              IdentitiesOnly yes
-            EOF
-            chmod 600 ~/.ssh/config
-
-            # Configure git to rewrite URLs to use the correct host alias
-            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler".insteadOf "ssh://git@github.com/platformatic/http-handler"
-            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter".insteadOf "ssh://git@github.com/platformatic/http-rewriter"
-
-            # Also handle variations without .git suffix
-            git config --global url."ssh://git@github.com-http-handler/platformatic/http-handler.git".insteadOf "ssh://git@github.com/platformatic/http-handler.git"
-            git config --global url."ssh://git@github.com-http-rewriter/platformatic/http-rewriter.git".insteadOf "ssh://git@github.com/platformatic/http-rewriter.git"
 
             cargo test --target ${{ matrix.settings.target }}
       - name: Test bindings
@@ -431,11 +342,6 @@ jobs:
       - test-linux-binding
     steps:
       - uses: actions/checkout@v4
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
-            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
           version: latest
@@ -509,17 +415,3 @@ jobs:
           else
             echo "Not a release, skipping publish"
           fi
-      - name: Collect npm logs
-        if: always()
-        run: |
-          mkdir -p npm-logs
-          if [ -d "$HOME/.npm/_logs" ]; then
-            cp -a "$HOME/.npm/_logs/." npm-logs/
-          fi
-      - name: Upload npm logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: npm-logs
-          path: npm-logs
-          if-no-files-found: ignore

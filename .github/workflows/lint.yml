@@ -1,8 +1,5 @@
 name: Lint
 
-env:
-  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
-
 'on':
   push:
     branches:
@@ -27,11 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: |
-            ${{ secrets.HTTP_HANDLER_ACCESS_TOKEN }}
-            ${{ secrets.HTTP_REWRITER_ACCESS_TOKEN }}
       - name: setup pnpm
         uses: pnpm/action-setup@v4
         with:

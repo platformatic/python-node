@@ -1,7 +1,7 @@
 {
   "name": "@platformatic/python-node",
   "description": "Run ASGI-compatible Python apps in Node.js",
-  "version": "0.1.10",
+  "version": "1.0.0",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
@@ -14,7 +14,6 @@
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
-    "access": "restricted",
     "scope": "@platformatic"
   },
   "license": "MIT",
