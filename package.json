@@ -19,7 +19,7 @@
   "license": "MIT",
   "devDependencies": {
     "@napi-rs/cli": "^3.0.4",
-    "@oxc-node/core": "^0.0.23",
+    "@oxc-node/core": "^0.0.32",
     "oxlint": "^0.16.0"
   },
   "engines": {
