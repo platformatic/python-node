@@ -233,10 +233,9 @@ impl PythonHandler {
   /// ```
   #[napi]
   pub async fn handle_request(&self, request: &NapiRequest) -> Result<NapiResponse> {
-    use std::ops::Deref;
     let response = self
       .asgi
-      .handle(request.deref().clone())
+      .handle(request.clone().into_inner())
       .await
       .map_err(|e| Error::from_reason(e.to_string()))?;
     Ok(response.into())
@@ -246,11 +245,10 @@ impl PythonHandler {
   //   request: &NapiRequest,
   //   signal: Option<AbortSignal>,
   // ) -> AsyncTask<PythonRequestTask> {
-  //   use std::ops::Deref;
   //   AsyncTask::with_optional_signal(
   //     PythonRequestTask {
   //       asgi: self.asgi.clone(),
-  //       request: request.deref().clone(),
+  //       request: request.clone().into_inner(),
   //     },
   //     signal,
   //   )
@@ -276,10 +274,9 @@ impl PythonHandler {
   /// ```
   #[napi]
   pub fn handle_request_sync(&self, request: &NapiRequest) -> Result<NapiResponse> {
-    use std::ops::Deref;
     let mut task = PythonRequestTask {
       asgi: self.asgi.clone(),
-      request: request.deref().clone(),
+      request: request.clone().into_inner(),
     };
 
     task.compute().map(Into::<NapiResponse>::into)
