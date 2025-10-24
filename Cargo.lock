@@ -380,6 +380,18 @@ dependencies = [
 [[package]]
 name = "http-handler"
 version = "1.0.0"
+source = "git+https://github.com/platformatic/http-handler?branch=core-async-trait#87852b48ada82ca881ef933ebe6dc9c657664feb"
+dependencies = [
+ "bytes",
+ "http",
+ "napi",
+ "napi-build",
+ "napi-derive",
+]
+
+[[package]]
+name = "http-handler"
+version = "1.0.0"
 source = "git+https://github.com/platformatic/http-handler#f60dbc830e12b1cedae4c8a4f370bc4133a868fc"
 dependencies = [
  "async-trait",
@@ -397,7 +409,7 @@ source = "git+https://github.com/platformatic/http-rewriter#2c2319e6721f20a0eebc
 dependencies = [
  "bytes",
  "http",
- "http-handler",
+ "http-handler 1.0.0 (git+https://github.com/platformatic/http-handler)",
  "napi",
  "napi-build",
  "napi-derive",
@@ -725,9 +737,8 @@ dependencies = [
 name = "python-node"
 version = "1.0.0"
 dependencies = [
- "async-trait",
  "bytes",
- "http-handler",
+ "http-handler 1.0.0 (git+https://github.com/platformatic/http-handler?branch=core-async-trait)",
  "http-rewriter",
  "libc",
  "napi",
