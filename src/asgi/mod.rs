@@ -205,7 +205,6 @@ impl Asgi {
   }
 }
 
-#[async_trait::async_trait]
 impl Handler for Asgi {
   type Error = HandlerError;
 

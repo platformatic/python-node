@@ -725,7 +725,6 @@ dependencies = [
 name = "python-node"
 version = "1.0.0"
 dependencies = [
- "async-trait",
  "bytes",
  "http-handler",
  "http-rewriter",
