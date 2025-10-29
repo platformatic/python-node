@@ -414,7 +414,7 @@ mod tests {
       .header("authorization", "Bearer token123")
       .header("user-agent", "test-client/1.0")
       .header("x-custom-header", "custom-value")
-      .body(bytes::BytesMut::from("request body"))
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     // Set socket info extension
@@ -482,7 +482,7 @@ mod tests {
     let request = Builder::new()
       .method(Method::GET)
       .uri("/")
-      .body(bytes::BytesMut::new())
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     let scope: HttpConnectionScope = (&request)
@@ -509,7 +509,7 @@ mod tests {
       .method(Method::PUT)
       .uri("http://api.example.com/resource/123")
       .version(Version::HTTP_2)
-      .body(bytes::BytesMut::new())
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     let scope: HttpConnectionScope = (&request)

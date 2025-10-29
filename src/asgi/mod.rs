@@ -2,30 +2,35 @@ use std::{
   env::{current_dir, var},
   ffi::CString,
   fs::{read_dir, read_to_string},
+  future::Future,
   path::{Path, PathBuf},
+  pin::Pin,
   sync::{Arc, Mutex, OnceLock, Weak},
+  task::{Context, Poll},
 };
 
 #[cfg(target_os = "linux")]
 use std::{ffi::CStr, mem};
 
-use bytes::BytesMut;
-use http_handler::{Handler, Request, RequestExt, Response, extensions::DocumentRoot};
+use bytes::Bytes;
+use http_handler::{
+  Handler, Request, RequestBody, RequestExt, Response, StreamChunk, WebSocketMode, extensions::DocumentRoot
+};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use tokio::sync::oneshot;
 
 use crate::{HandlerError, PythonHandlerTarget};
 
-/// HTTP response tuple: (status_code, headers, body)
-type HttpResponse = (u16, Vec<(String, String)>, Vec<u8>);
+/// HTTP response tuple: (status_code, headers)
+type HttpResponse = (u16, Vec<(String, String)>);
 /// Result type for HTTP response operations
 type HttpResponseResult = Result<HttpResponse, HandlerError>;
 
 /// Global runtime for when no tokio runtime is available
 static FALLBACK_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-fn fallback_handle() -> tokio::runtime::Handle {
+pub(crate) fn fallback_handle() -> tokio::runtime::Handle {
   tokio::runtime::Handle::try_current().unwrap_or_else(|_| {
     // No runtime exists, create a fallback one
     let rt = FALLBACK_RUNTIME.get_or_init(|| {
@@ -33,6 +38,48 @@ fn fallback_handle() -> tokio::runtime::Handle {
     });
     rt.handle().clone()
   })
+}
+
+/// Future that polls a Python concurrent.futures.Future for completion
+///
+/// This future polls a Python concurrent.futures.Future and returns a Result
+/// containing either the success value or the exception when the future completes.
+struct PythonFuturePoller(Py<PyAny>);
+
+impl PythonFuturePoller {
+  fn new(future: Py<PyAny>) -> Self {
+    Self(future)
+  }
+}
+
+impl Future for PythonFuturePoller {
+  type Output = Result<Py<PyAny>, PyErr>;
+
+  fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    Python::attach(|py| {
+      let future_bound = self.0.bind(py);
+
+      // First check if future is done
+      let is_done: bool = future_bound
+        .call_method0("done")
+        .ok()
+        .and_then(|result| result.extract().ok())
+        .unwrap_or(false);
+
+      if is_done {
+        // Future is done - get the result (Ok for success, Err for exception)
+        // Use 0.0 timeout since we know it's already done
+        Poll::Ready(match future_bound.call_method1("result", (0.0,)) {
+          Ok(value) => Ok(value.unbind()),
+          Err(err) => Err(err),
+        })
+      } else {
+        // Not done yet, wake the task to poll again
+        cx.waker().wake_by_ref();
+        Poll::Pending
+      }
+    })
+  }
 }
 
 /// Global Python event loop handle storage
@@ -152,6 +199,7 @@ impl Asgi {
     app_target: Option<PythonHandlerTarget>,
   ) -> Result<Self, HandlerError> {
     let target = app_target.unwrap_or_default();
+
     let docroot = docroot
       .map(|d| Ok(PathBuf::from(d)))
       .unwrap_or_else(|| current_dir().map_err(HandlerError::CurrentDirectoryError))?;
@@ -198,14 +246,355 @@ impl Asgi {
   pub fn docroot(&self) -> &Path {
     &self.docroot
   }
-
-  /// Handle a request synchronously
-  pub fn handle_sync(&self, request: Request) -> Result<Response, HandlerError> {
-    fallback_handle().block_on(self.handle(request))
-  }
 }
 
-#[async_trait::async_trait]
+// Helper function: Forward HTTP request chunk
+// Returns true if the loop should break
+async fn forward_http_request_chunk(
+  chunk: Option<StreamChunk<Bytes>>,
+  rx: &tokio::sync::mpsc::UnboundedSender<HttpReceiveMessage>,
+  request_done: &mut bool,
+) -> bool {
+  match chunk {
+    Some(StreamChunk::Data(bytes)) => {
+      if rx.send(HttpReceiveMessage::Request {
+        body: bytes.to_vec(),
+        more_body: true,
+      }).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+    }
+    Some(StreamChunk::End) => {
+      // Send final request chunk
+      if rx.send(HttpReceiveMessage::Request {
+        body: vec![],
+        more_body: false,
+      }).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+      *request_done = true;
+    }
+    None => {
+      // Request channel closed without End marker - send final message
+      if rx.send(HttpReceiveMessage::Request {
+        body: vec![],
+        more_body: false,
+      }).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+      *request_done = true;
+    }
+  }
+  false
+}
+
+// Helper function: Forward WebSocket request chunk
+// Returns true if the loop should break
+async fn forward_websocket_request_chunk(
+  chunk: Option<StreamChunk<Bytes>>,
+  rx: &tokio::sync::mpsc::UnboundedSender<WebSocketReceiveMessage>,
+) -> bool {
+  match chunk {
+    Some(StreamChunk::Data(bytes)) => {
+      // Try to decode as text, fallback to binary
+      let send_result = if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        rx.send(WebSocketReceiveMessage::Receive {
+          text: Some(text),
+          bytes: None,
+        })
+      } else {
+        rx.send(WebSocketReceiveMessage::Receive {
+          text: None,
+          bytes: Some(bytes.to_vec()),
+        })
+      };
+
+      if send_result.is_err() {
+        // Python receiver dropped - stop forwarding
+        return true;
+      }
+    }
+    Some(StreamChunk::End) => {
+      // Send disconnect message
+      if rx.send(WebSocketReceiveMessage::Disconnect {
+        code: Some(1000),
+        reason: None,
+      }).is_err() {
+        // Python receiver dropped - already disconnected
+      }
+      return true;
+    }
+    None => {
+      // Client disconnected
+      if rx.send(WebSocketReceiveMessage::Disconnect {
+        code: Some(1000),
+        reason: None,
+      }).is_err() {
+        // Python receiver dropped - already disconnected
+      }
+      return true;
+    }
+  }
+  false
+}
+
+// Helper function: Handle HTTP response message
+// Returns true if the loop should break
+async fn handle_http_response_message(
+  msg: Option<AcknowledgedMessage<HttpSendMessage>>,
+  response_tx: &mut Option<oneshot::Sender<HttpResponseResult>>,
+  response_body_tx: &tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>,
+  response_body_tx_keepalive: &Arc<Mutex<Option<tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>>>>,
+) -> bool {
+  match msg {
+    Some(AcknowledgedMessage {
+      message: HttpSendMessage::HttpResponseStart { status, headers, .. },
+      ack,
+    }) if response_tx.is_some() => {
+      // Send response.start back to main task (oneshot - only once)
+      if let Some(tx) = response_tx.take() {
+        if tx.send(Ok((status, headers))).is_err() {
+          // Main task dropped receiver - stop forwarding
+          return true;
+        }
+      }
+      if ack.send(()).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+    }
+    Some(AcknowledgedMessage {
+      message: HttpSendMessage::HttpResponseBody { body, more_body },
+      ack,
+    }) => {
+      // Acknowledge receipt
+      if ack.send(()).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+
+      // Send body data if not empty
+      if !body.is_empty()
+        && response_body_tx.send(Ok(StreamChunk::Data(Bytes::from(body)))).await.is_err() {
+        // Client dropped receiver - stop forwarding
+        return true;
+      }
+
+      // Check if this was the final chunk
+      if !more_body {
+        // Send End marker and close channel
+        if response_body_tx.send(Ok(StreamChunk::End)).await.is_err() {
+          // Client dropped receiver - already disconnected, exit cleanly
+        }
+        drop(response_body_tx_keepalive.lock().unwrap().take());
+        return true;
+      }
+    }
+    None => {
+      // Python sender closed
+      return true;
+    }
+    _ => {
+      // Ignore other message types (e.g., duplicate response.start)
+    }
+  }
+  false
+}
+
+// Helper function: Handle WebSocket response message
+// Returns true if the loop should break
+async fn handle_websocket_response_message(
+  msg: Option<AcknowledgedMessage<WebSocketSendMessage>>,
+  response_body_tx: &tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>,
+) -> bool {
+  match msg {
+    Some(ack_msg) => {
+      match ack_msg.message {
+        WebSocketSendMessage::Send { text, bytes } => {
+          if let Some(text) = text {
+            if response_body_tx.send(Ok(StreamChunk::Data(Bytes::from(text)))).await.is_err() {
+              // Client disconnected - stop forwarding
+              return true;
+            }
+          } else if let Some(bytes) = bytes {
+            if response_body_tx.send(Ok(StreamChunk::Data(Bytes::from(bytes)))).await.is_err() {
+              // Client disconnected - stop forwarding
+              return true;
+            }
+          }
+        }
+        WebSocketSendMessage::Close { .. } => {
+          // Send End marker and close connection
+          if response_body_tx.send(Ok(StreamChunk::End)).await.is_err() {
+            // Client disconnected - already closed
+          }
+          return true;
+        }
+        _ => {}
+      }
+      // Acknowledge receipt
+      if ack_msg.ack.send(()).is_err() {
+        // Python dropped receiver - stop forwarding
+        return true;
+      }
+    }
+    None => {
+      // Python sender closed
+      return true;
+    }
+  }
+  false
+}
+
+// Helper function: Handle Python exception
+// Returns true if the loop should break
+async fn handle_python_exception(
+  result: Result<Py<PyAny>, PyErr>,
+  response_tx: Option<oneshot::Sender<HttpResponseResult>>,
+  response_body_tx: &tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>,
+  response_body_tx_keepalive: Option<&Arc<Mutex<Option<tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>>>>>,
+) -> bool {
+  if let Err(py_err) = result {
+    // Python exception - propagate error depending on state
+    if let Some(tx) = response_tx {
+      // Response.start not yet sent - send error via oneshot channel
+      let _ = tx.send(Err(HandlerError::PythonError(py_err)));
+    } else {
+      // Response.start already sent - send error via response body stream
+      let error_msg = Python::attach(|_py| py_err.to_string());
+      let _ = response_body_tx.send(Err(error_msg)).await;
+    }
+    // Close response stream and exit
+    if let Some(keepalive) = response_body_tx_keepalive {
+      drop(keepalive.lock().unwrap().take());
+    }
+    return true;
+  }
+  false
+}
+
+// Helper function: Handle response timeout
+// Returns true if the loop should break
+fn handle_response_timeout(
+  response_tx: Option<oneshot::Sender<HttpResponseResult>>,
+  response_body_tx_keepalive: &Arc<Mutex<Option<tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>>>>,
+) -> bool {
+  // Send timeout error via oneshot
+  if let Some(tx) = response_tx {
+    let _ = tx.send(Err(HandlerError::NoResponse));
+  }
+  drop(response_body_tx_keepalive.lock().unwrap().take());
+  true
+}
+
+// Spawn HTTP forwarding task
+fn spawn_http_forwarding_task(
+  mut request_rx: tokio::sync::mpsc::Receiver<StreamChunk<Bytes>>,
+  mut tx_receiver: tokio::sync::mpsc::UnboundedReceiver<AcknowledgedMessage<HttpSendMessage>>,
+  rx: tokio::sync::mpsc::UnboundedSender<HttpReceiveMessage>,
+  response_body_tx_clone: tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>,
+  response_body_tx_keepalive_for_task: Arc<Mutex<Option<tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>>>>,
+  response_tx: oneshot::Sender<HttpResponseResult>,
+  future: Py<PyAny>,
+) {
+  tokio::spawn(async move {
+    let mut request_done = false;
+    let mut response_tx = Some(response_tx);
+    let mut future_poller = PythonFuturePoller::new(future);
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(30));
+    tokio::pin!(timeout);
+
+    loop {
+      tokio::select! {
+        // Forward request body chunks from Node.js to Python
+        request_chunk = request_rx.recv(), if !request_done => {
+          if forward_http_request_chunk(request_chunk, &rx, &mut request_done).await {
+            break;
+          }
+        }
+
+        // Forward response messages from Python to Node.js
+        response_msg = tx_receiver.recv() => {
+          if handle_http_response_message(
+            response_msg,
+            &mut response_tx,
+            &response_body_tx_clone,
+            &response_body_tx_keepalive_for_task,
+          ).await {
+            break;
+          }
+        }
+
+        // Monitor Python future for exceptions
+        result = Pin::new(&mut future_poller) => {
+          if handle_python_exception(
+            result,
+            response_tx.take(),
+            &response_body_tx_clone,
+            Some(&response_body_tx_keepalive_for_task),
+          ).await {
+            break;
+          }
+        }
+
+        // Timeout after 30 seconds without response.start
+        _ = &mut timeout, if response_tx.is_some() => {
+          if handle_response_timeout(response_tx.take(), &response_body_tx_keepalive_for_task) {
+            break;
+          }
+        }
+
+        // Exit loop if both directions are done
+        else => break,
+      }
+    }
+  });
+}
+
+// Spawn WebSocket forwarding task
+fn spawn_websocket_forwarding_task(
+  mut request_rx: tokio::sync::mpsc::Receiver<StreamChunk<Bytes>>,
+  mut tx_receiver: tokio::sync::mpsc::UnboundedReceiver<AcknowledgedMessage<WebSocketSendMessage>>,
+  rx: tokio::sync::mpsc::UnboundedSender<WebSocketReceiveMessage>,
+  response_body_tx_clone: tokio::sync::mpsc::Sender<Result<StreamChunk<Bytes>, String>>,
+  future: Py<PyAny>,
+) {
+  tokio::spawn(async move {
+    let mut future_poller = PythonFuturePoller::new(future);
+
+    loop {
+      tokio::select! {
+        // Forward WebSocket messages from client to Python
+        request_chunk = request_rx.recv() => {
+          if forward_websocket_request_chunk(request_chunk, &rx).await {
+            break;
+          }
+        }
+
+        // Forward WebSocket messages from Python to client
+        response_msg = tx_receiver.recv() => {
+          if handle_websocket_response_message(response_msg, &response_body_tx_clone).await {
+            break;
+          }
+        }
+
+        // Monitor Python future for exceptions
+        result = Pin::new(&mut future_poller) => {
+          if handle_python_exception(result, None, &response_body_tx_clone, None).await {
+            break;
+          }
+        }
+
+        // Exit loop if all branches complete
+        else => break,
+      }
+    }
+  });
+}
+
 impl Handler for Asgi {
   type Error = HandlerError;
 
@@ -216,62 +605,146 @@ impl Handler for Asgi {
       path: self.docroot.clone(),
     });
 
-    // Create ASGI scope
-    let scope: HttpConnectionScope = (&request).try_into()?;
+    // Check if this is a WebSocket request
+    let is_websocket = request.extensions().get::<WebSocketMode>().is_some();
 
-    // Create channels for ASGI communication
-    let (rx_receiver, rx) = Receiver::http();
-    let (tx_sender, tx_receiver) = Sender::http();
+    // Extract parts
+    let (parts, mut body) = request.into_parts();
 
-    // Send request body
-    let request_message = HttpReceiveMessage::Request {
-      body: request.body().to_vec(),
-      more_body: false,
-    };
-    rx.send(request_message).map_err(|_| {
-      HandlerError::PythonError(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-        "Failed to send request",
-      ))
-    })?;
+    // Create response body and sender
+    let (response_body, response_body_tx) = body.create_response();
 
-    // Create response channel
-    let (response_tx, response_rx) = oneshot::channel();
+    // Take request receiver for bidirectional forwarding
+    let request_rx = body
+      .take_request_rx()
+      .ok_or(HandlerError::StreamAlreadyConsumed)?;
 
-    // Submit the ASGI app call to Python event loop
-    let future = Python::attach(|py| {
-      let scope_py = scope.into_pyobject(py)?;
-      let coro = self
-        .app_function
-        .call1(py, (scope_py, rx_receiver, tx_sender))?;
+    // Clone response_body_tx for spawned task
+    let response_body_tx_clone = response_body_tx.clone();
 
-      let asyncio = py.import("asyncio")?;
-      let future = asyncio.call_method1(
-        "run_coroutine_threadsafe",
-        (coro, self.event_loop_handle.event_loop()),
-      )?;
+    if is_websocket {
+      // WebSocket mode
+      // Create WebSocket scope from parts by temporarily reconstructing a request
+      let temp_request = Request::from_parts(parts.clone(), RequestBody::new());
+      let scope: WebSocketConnectionScope = (&temp_request).try_into()?;
 
-      Ok::<Py<PyAny>, HandlerError>(future.unbind())
-    })?;
+      // Create channels for ASGI communication
+      let (rx_receiver, rx) = Receiver::websocket();
+      let (tx_sender, mut tx_receiver) = Sender::websocket();
 
-    // Spawn task to collect response and monitor for Python exceptions
-    tokio::spawn(collect_response_with_exception_handling(
-      tx_receiver,
-      response_tx,
-      future,
-    ));
+      // Send connect
+      rx
+        .send(WebSocketReceiveMessage::Connect)
+        .map_err(|_| HandlerError::NoResponse)?;
 
-    // Wait for response
-    let (status, headers, body) = response_rx.await??;
+      // Submit ASGI app to Python
+      let future = Python::attach(|py| {
+        let scope_py = scope.into_pyobject(py)?;
+        let coro = self.app_function.call1(py, (scope_py, rx_receiver, tx_sender))?;
 
-    // Build response
-    let mut builder = http_handler::response::Builder::new().status(status);
-    for (name, value) in headers {
-      builder = builder.header(name.as_bytes(), value.as_bytes());
+        let asyncio = py.import("asyncio")?;
+        let future = asyncio.call_method1(
+          "run_coroutine_threadsafe",
+          (coro, self.event_loop_handle.event_loop()),
+        )?;
+
+        Ok::<Py<PyAny>, HandlerError>(future.unbind())
+      })?;
+
+      // Wait for accept
+      match tx_receiver.recv().await {
+        Some(AcknowledgedMessage {
+          message: WebSocketSendMessage::Accept { .. },
+          ack,
+        }) => {
+          // Acknowledge receipt
+          if ack.send(()).is_err() {
+            // Python dropped receiver - cannot continue
+            return Err(HandlerError::WebSocketNotAccepted);
+          }
+        }
+        _ => return Err(HandlerError::WebSocketNotAccepted),
+      }
+
+      // Spawn WebSocket forwarding task
+      spawn_websocket_forwarding_task(
+        request_rx,
+        tx_receiver,
+        rx,
+        response_body_tx_clone,
+        future,
+      );
+
+      // Return 101 Switching Protocols response with WebSocket body
+      http_handler::response::Builder::new()
+        .status(101)
+        .body(response_body)
+        .map_err(HandlerError::HttpHandlerError)
+    } else {
+      // HTTP mode
+      // Create HTTP scope from parts by temporarily reconstructing a request
+      let temp_request = Request::from_parts(parts.clone(), RequestBody::new());
+      let scope: HttpConnectionScope = (&temp_request).try_into()?;
+
+      // Create ASGI channels
+      let (rx_receiver, rx) = Receiver::http();
+      let (tx_sender, tx_receiver) = Sender::http();
+
+      // Keep channel alive for HTTP streaming
+      let response_body_tx_keepalive = Arc::new(Mutex::new(Some(response_body_tx.clone())));
+      let response_body_tx_keepalive_for_task = response_body_tx_keepalive.clone();
+
+      // Create oneshot channel for sending response.start (or error) back to main task
+      let (response_tx, response_rx) = oneshot::channel::<HttpResponseResult>();
+
+      // Submit ASGI app to Python to get the future
+      let future = Python::attach(|py| {
+        let scope_py = scope.into_pyobject(py)?;
+        let coro = self.app_function.call1(py, (scope_py, rx_receiver, tx_sender))?;
+
+        let asyncio = py.import("asyncio")?;
+        let future = asyncio.call_method1(
+          "run_coroutine_threadsafe",
+          (coro, self.event_loop_handle.event_loop()),
+        )?;
+
+        Ok::<Py<PyAny>, HandlerError>(future.unbind())
+      })?;
+
+      // Spawn HTTP forwarding task
+      spawn_http_forwarding_task(
+        request_rx,
+        tx_receiver,
+        rx,
+        response_body_tx_clone,
+        response_body_tx_keepalive_for_task,
+        response_tx,
+        future,
+      );
+
+      // Wait for response.start (errors are propagated from the forwarding task)
+      let (status, headers) = response_rx
+        .await
+        .map_err(|_| HandlerError::NoResponse)? // Channel closed without sending
+        ?; // Unwrap Result from the task
+
+      // Build and return response with headers and streaming body
+      let mut builder = http_handler::response::Builder::new().status(status);
+      for (name, value) in headers {
+        builder = builder.header(name.as_bytes(), value.as_bytes());
+      }
+
+      builder
+        .body(response_body)
+        .map_err(HandlerError::HttpHandlerError)
     }
+  }
+}
 
-    builder
-      .body(BytesMut::from(&body[..]))
-      .map_err(HandlerError::HttpHandlerError)
+impl Asgi {
+  /// Handle a request synchronously (continued for compatibility)
+  pub fn handle_sync(&self, request: Request) -> Result<Response, HandlerError> {
+    fallback_handle().block_on(self.handle(request))
   }
 }
 
@@ -319,14 +792,13 @@ fn find_python_site_packages(venv_path: &Path) -> Vec<PathBuf> {
     if let Ok(entries) = read_dir(lib_path) {
       for entry in entries.flatten() {
         let entry_path = entry.path();
-        if entry_path.is_dir() {
-          if let Some(dir_name) = entry_path.file_name().and_then(|n| n.to_str()) {
-            // Look for directories matching python3.* pattern
-            if dir_name.starts_with("python3.") {
-              let site_packages = entry_path.join("site-packages");
-              if site_packages.exists() {
-                site_packages_paths.push(site_packages);
-              }
+        if entry_path.is_dir()
+          && let Some(dir_name) = entry_path.file_name().and_then(|n| n.to_str()) {
+          // Look for directories matching python3.* pattern
+          if dir_name.starts_with("python3.") {
+            let site_packages = entry_path.join("site-packages");
+            if site_packages.exists() {
+              site_packages_paths.push(site_packages);
             }
           }
         }
@@ -381,94 +853,4 @@ fn start_python_event_loop_thread(event_loop: Py<PyAny>) {
   .unwrap_or_else(|e| {
     eprintln!("Python event loop thread error: {e}");
   });
-}
-
-/// Collect ASGI response messages while monitoring for Python exceptions
-async fn collect_response_with_exception_handling(
-  mut tx_receiver: tokio::sync::mpsc::UnboundedReceiver<AcknowledgedMessage<HttpSendMessage>>,
-  response_tx: oneshot::Sender<HttpResponseResult>,
-  python_future: Py<PyAny>,
-) {
-  let mut status = 500u16;
-  let mut headers = Vec::new();
-  let mut body = Vec::new();
-  let mut response_started = false;
-
-  // Spawn a task to monitor the Python future for exceptions
-  let future_clone = Python::attach(|py| python_future.clone_ref(py));
-  let mut exception_handle = tokio::task::spawn_blocking(move || {
-    Python::attach(|py| {
-      let future_bound = future_clone.bind(py);
-      // Wait for the future to complete (with 30 second timeout)
-      match future_bound.call_method1("result", (30.0,)) {
-        Ok(_) => None,     // Success - no exception
-        Err(e) => Some(e), // Exception occurred
-      }
-    })
-  });
-
-  loop {
-    tokio::select! {
-      // Check for messages from the ASGI app
-      msg = tx_receiver.recv() => {
-        match msg {
-          Some(ack_msg) => {
-            let AcknowledgedMessage { message, ack } = ack_msg;
-
-            match message {
-              HttpSendMessage::HttpResponseStart {
-                status: s,
-                headers: h,
-                ..
-              } => {
-                status = s;
-                headers = h;
-                response_started = true;
-              }
-              HttpSendMessage::HttpResponseBody { body: b, more_body } => {
-                if response_started {
-                  body.extend_from_slice(&b);
-                  if !more_body {
-                    let _ = ack.send(());
-                    let _ = response_tx.send(Ok((status, headers, body)));
-                    return;
-                  }
-                }
-              }
-            }
-
-            let _ = ack.send(());
-          }
-          None => {
-            // Channel closed without a complete response
-            let _ = response_tx.send(Err(if response_started {
-              HandlerError::ResponseInterrupted
-            } else {
-              HandlerError::NoResponse
-            }));
-            return;
-          }
-        }
-      }
-      // Check if the Python coroutine raised an exception
-      exception_result = &mut exception_handle => {
-        match exception_result {
-          Ok(Some(py_err)) => {
-            // Python exception occurred
-            let _ = response_tx.send(Err(HandlerError::PythonError(py_err)));
-            return;
-          }
-          Ok(None) => {
-            // Python coroutine completed successfully
-            // Continue waiting for response messages
-          }
-          Err(e) => {
-            // Tokio task error
-            let _ = response_tx.send(Err(HandlerError::TokioError(e.to_string())));
-            return;
-          }
-        }
-      }
-    }
-  }
 }

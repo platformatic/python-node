@@ -120,12 +120,12 @@ test('Python', async t => {
 
     const request = new Request({
       method: 'GET',
-      url: '/stream'
+      url: '/'
     })
 
     const response = await python.handleRequest(request)
     strictEqual(response.status, 200, 'should return 200 status')
-    strictEqual(response.body.toString(), 'Chunk 1\nChunk 2\nChunk 3\n', 'should concatenate all chunks')
+    strictEqual(response.body.toString(), 'Chunk 1\nChunk 2\nChunk 3\nChunk 4\nChunk 5\n', 'should concatenate all chunks')
   })
 
   await t.test('handleRequest - root_path', async () => {
