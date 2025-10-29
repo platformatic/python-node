@@ -74,3 +74,95 @@ impl Receiver {
     }
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::asgi::ensure_python_initialized;
+  use crate::asgi::http::HttpReceiveMessage;
+  use crate::asgi::lifespan::LifespanReceiveMessage;
+  use crate::asgi::websocket::WebSocketReceiveMessage;
+
+  #[test]
+  fn test_receiver_http_creation() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::http();
+    // Verify we can send a message
+    let result = tx.send(HttpReceiveMessage::Request {
+      body: vec![],
+      more_body: false,
+    });
+    assert!(result.is_ok(), "Should be able to send message");
+  }
+
+  #[test]
+  fn test_receiver_websocket_creation() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::websocket();
+    // Verify we can send a message
+    let result = tx.send(WebSocketReceiveMessage::Connect);
+    assert!(result.is_ok(), "Should be able to send message");
+  }
+
+  #[test]
+  fn test_receiver_lifespan_creation() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::lifespan();
+    // Verify we can send a message
+    let result = tx.send(LifespanReceiveMessage::LifespanStartup);
+    assert!(result.is_ok(), "Should be able to send message");
+  }
+
+  #[tokio::test]
+  async fn test_receiver_http_message_flow() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::http();
+
+    // Send a message and verify it succeeds
+    let message = HttpReceiveMessage::Request {
+      body: b"test body".to_vec(),
+      more_body: false,
+    };
+    let result = tx.send(message);
+    assert!(
+      result.is_ok(),
+      "Should be able to send message through channel"
+    );
+  }
+
+  #[tokio::test]
+  async fn test_receiver_websocket_message_flow() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::websocket();
+
+    // Send a message and verify it succeeds
+    let message = WebSocketReceiveMessage::Receive {
+      bytes: None,
+      text: Some("test message".to_string()),
+    };
+    let result = tx.send(message);
+    assert!(
+      result.is_ok(),
+      "Should be able to send message through channel"
+    );
+  }
+
+  #[tokio::test]
+  async fn test_receiver_lifespan_message_flow() {
+    ensure_python_initialized();
+
+    let (_receiver, tx) = Receiver::lifespan();
+
+    // Send multiple messages and verify they succeed
+    let result1 = tx.send(LifespanReceiveMessage::LifespanStartup);
+    assert!(result1.is_ok(), "Should be able to send startup message");
+
+    let result2 = tx.send(LifespanReceiveMessage::LifespanShutdown);
+    assert!(result2.is_ok(), "Should be able to send shutdown message");
+  }
+}

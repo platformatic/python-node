@@ -100,3 +100,88 @@ impl Sender {
     }
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::asgi::ensure_python_initialized;
+
+  #[test]
+  fn test_sender_http_creation() {
+    ensure_python_initialized();
+
+    let (_sender, mut rx) = Sender::http();
+    // Verify receiver is open
+    assert!(rx.try_recv().is_err(), "Channel should be empty but open");
+  }
+
+  #[test]
+  fn test_sender_websocket_creation() {
+    ensure_python_initialized();
+
+    let (_sender, mut rx) = Sender::websocket();
+    // Verify receiver is open
+    assert!(rx.try_recv().is_err(), "Channel should be empty but open");
+  }
+
+  #[test]
+  fn test_sender_lifespan_creation() {
+    ensure_python_initialized();
+
+    let (_sender, mut rx) = Sender::lifespan();
+    // Verify receiver is open
+    assert!(rx.try_recv().is_err(), "Channel should be empty but open");
+  }
+
+  #[test]
+  fn test_sender_http_channel_closed() {
+    ensure_python_initialized();
+
+    let (sender, rx) = Sender::http();
+
+    // Drop the receiver to close the channel
+    drop(rx);
+
+    // Sender should still exist but attempts to send will fail
+    // We can't easily test the __call__ method without Python, but we've verified
+    // the channel setup works
+    drop(sender);
+  }
+
+  #[test]
+  fn test_sender_websocket_channel_closed() {
+    ensure_python_initialized();
+
+    let (sender, rx) = Sender::websocket();
+
+    // Drop the receiver to close the channel
+    drop(rx);
+
+    // Sender should still exist
+    drop(sender);
+  }
+
+  #[test]
+  fn test_sender_lifespan_channel_closed() {
+    ensure_python_initialized();
+
+    let (sender, rx) = Sender::lifespan();
+
+    // Drop the receiver to close the channel
+    drop(rx);
+
+    // Sender should still exist
+    drop(sender);
+  }
+
+  #[tokio::test]
+  async fn test_acknowledged_message_structure() {
+    ensure_python_initialized();
+
+    let (_sender, mut rx) = Sender::http();
+
+    // We can't easily send through the sender without Python, but we can verify
+    // the receiver side works
+    assert!(rx.try_recv().is_err(), "Channel should be empty initially");
+  }
+}

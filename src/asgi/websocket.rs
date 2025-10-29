@@ -1,6 +1,8 @@
+use http_handler::{Request, RequestExt, Version};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::net::SocketAddr;
 
 use crate::asgi::{AsgiInfo, HttpVersion};
 
@@ -56,6 +58,99 @@ pub struct WebSocketConnectionScope {
   /// this request. (See Lifespan Protocol). Optional; if missing the
   /// server does not support this feature.
   state: Option<Py<PyDict>>,
+}
+
+impl TryFrom<&Request> for WebSocketConnectionScope {
+  type Error = PyErr;
+
+  fn try_from(request: &Request) -> Result<Self, Self::Error> {
+    // Extract HTTP version
+    let http_version = match request.version() {
+      Version::HTTP_10 => HttpVersion::V1_0,
+      Version::HTTP_11 => HttpVersion::V1_1,
+      Version::HTTP_2 => HttpVersion::V2_0,
+      Version::HTTP_3 => HttpVersion::V2_0, // treat HTTP/3 as HTTP/2 for ASGI
+      _ => HttpVersion::V1_1,               // default fallback
+    };
+
+    // Extract scheme from URI (typically wss or ws for WebSocket)
+    let scheme = request
+      .uri()
+      .scheme_str()
+      .map(|s| {
+        if s == "https" || s == "wss" {
+          "wss"
+        } else {
+          "ws"
+        }
+      })
+      .unwrap_or("ws")
+      .to_string();
+
+    // Extract path
+    let path = request.uri().path().to_string();
+
+    // Extract raw path (same as path for now, as we don't have the raw bytes)
+    let raw_path = path.clone();
+
+    // Extract query string
+    let query_string = request.uri().query().unwrap_or("").to_string();
+
+    // Extract root path from DocumentRoot extension
+    let root_path = request
+      .document_root()
+      .map(|doc_root| doc_root.path.to_string_lossy().to_string())
+      .unwrap_or_default();
+
+    // Convert headers
+    let headers: Vec<(String, String)> = request
+      .headers()
+      .iter()
+      .map(|(name, value)| {
+        (
+          name.as_str().to_lowercase(),
+          value.to_str().unwrap_or("").to_string(),
+        )
+      })
+      .collect();
+
+    // Extract client and server from socket info if available
+    let (client, server) = if let Some(socket_info) = request.socket_info() {
+      let client = socket_info.remote.map(|addr| match addr {
+        SocketAddr::V4(v4) => (v4.ip().to_string(), v4.port()),
+        SocketAddr::V6(v6) => (v6.ip().to_string(), v6.port()),
+      });
+      let server = socket_info.local.map(|addr| match addr {
+        SocketAddr::V4(v4) => (v4.ip().to_string(), v4.port()),
+        SocketAddr::V6(v6) => (v6.ip().to_string(), v6.port()),
+      });
+      (client, server)
+    } else {
+      (None, None)
+    };
+
+    // Extract subprotocols from Sec-WebSocket-Protocol header
+    let subprotocols: Vec<String> = request
+      .headers()
+      .get("sec-websocket-protocol")
+      .and_then(|h| h.to_str().ok())
+      .map(|protocols| protocols.split(',').map(|p| p.trim().to_string()).collect())
+      .unwrap_or_default();
+
+    Ok(WebSocketConnectionScope {
+      http_version,
+      scheme,
+      path,
+      raw_path,
+      query_string,
+      root_path,
+      headers,
+      client,
+      server,
+      subprotocols,
+      state: None,
+    })
+  }
 }
 
 impl<'py> IntoPyObject<'py> for WebSocketConnectionScope {
@@ -234,10 +329,7 @@ impl<'py> FromPyObject<'py> for WebSocketSendMessage {
 
         let headers: Vec<(String, String)> = dict
           .get_item("headers")?
-          .ok_or_else(|| {
-            PyValueError::new_err("Missing 'headers' key in WebSocket accept message")
-          })?
-          .extract()?;
+          .map_or(Ok(vec![]), |v| v.extract())?;
 
         Ok(WebSocketSendMessage::Accept {
           subprotocol,

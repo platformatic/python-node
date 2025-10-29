@@ -12,9 +12,12 @@
 use std::{ffi::c_char, sync::Arc};
 
 #[cfg(feature = "napi-support")]
+use bytes::{Bytes, BytesMut};
+
+#[cfg(feature = "napi-support")]
 use http_handler::napi::{Request as NapiRequest, Response as NapiResponse};
 #[cfg(feature = "napi-support")]
-use http_handler::{Handler, Request, Response};
+use http_handler::{BodyBuffer, Handler, Request, Response, ResponseBody};
 #[cfg(feature = "napi-support")]
 #[allow(unused_imports)]
 use http_rewriter::napi::Rewriter;
@@ -213,7 +216,11 @@ impl PythonHandler {
     self.asgi.docroot().display().to_string()
   }
 
-  /// Handle a Python request.
+  /// Handle a Python request with buffered response (backward compatible).
+  ///
+  /// This method uses the same asgi.handle() as handleStream, but buffers the
+  /// response body before returning. The body is available synchronously via
+  /// response.body getter.
   ///
   /// # Examples
   ///
@@ -229,30 +236,60 @@ impl PythonHandler {
   /// }));
   ///
   /// console.log(response.status);
-  /// console.log(response.body);
+  /// console.log(response.body.toString()); // Body is buffered and ready
   /// ```
   #[napi]
-  pub async fn handle_request(&self, request: &NapiRequest) -> Result<NapiResponse> {
-    let response = self
-      .asgi
-      .handle(request.clone().into_inner())
-      .await
-      .map_err(|e| Error::from_reason(e.to_string()))?;
-    Ok(response.into())
+  pub fn handle_request(
+    &self,
+    request: NapiRequest,
+    signal: Option<AbortSignal>,
+  ) -> AsyncTask<PythonRequestTask> {
+    AsyncTask::with_optional_signal(
+      PythonRequestTask {
+        asgi: self.asgi.clone(),
+        request: Some(request.into_inner()),
+      },
+      signal,
+    )
   }
-  // pub fn handle_request(
-  //   &self,
-  //   request: &NapiRequest,
-  //   signal: Option<AbortSignal>,
-  // ) -> AsyncTask<PythonRequestTask> {
-  //   AsyncTask::with_optional_signal(
-  //     PythonRequestTask {
-  //       asgi: self.asgi.clone(),
-  //       request: request.clone().into_inner(),
-  //     },
-  //     signal,
-  //   )
-  // }
+
+  /// Handle a Python request with streaming response.
+  ///
+  /// This method uses the same asgi.handle() as handleRequest, but returns
+  /// immediately with a streaming response. Use AsyncIterator to read chunks.
+  ///
+  /// # Examples
+  ///
+  /// ```js
+  /// const python = new Python({
+  ///   docroot: process.cwd(),
+  ///   argv: process.argv
+  /// });
+  ///
+  /// const response = await python.handleStream(new Request({
+  ///   method: 'GET',
+  ///   url: 'http://example.com'
+  /// }));
+  ///
+  /// // Read response via AsyncIterator
+  /// for await (const chunk of response) {
+  ///   console.log(chunk.toString());
+  /// }
+  /// ```
+  #[napi]
+  pub fn handle_stream(
+    &self,
+    request: NapiRequest,
+    signal: Option<AbortSignal>,
+  ) -> AsyncTask<PythonStreamTask> {
+    AsyncTask::with_optional_signal(
+      PythonStreamTask {
+        asgi: self.asgi.clone(),
+        request: Some(request.into_inner()),
+      },
+      signal,
+    )
+  }
 
   /// Handle a PHP request synchronously.
   ///
@@ -273,107 +310,198 @@ impl PythonHandler {
   /// console.log(response.body);
   /// ```
   #[napi]
-  pub fn handle_request_sync(&self, request: &NapiRequest) -> Result<NapiResponse> {
+  pub fn handle_request_sync(&self, request: NapiRequest) -> Result<NapiResponse> {
     let mut task = PythonRequestTask {
       asgi: self.asgi.clone(),
-      request: request.clone().into_inner(),
+      request: Some(request.into_inner()),
     };
 
     task.compute().map(Into::<NapiResponse>::into)
   }
 }
 
-/// Task container to run a Python request in a worker thread.
+/// Task for buffered request handling.
+/// Uses identical asgi.handle() call, just buffers the body afterward.
 #[cfg(feature = "napi-support")]
 pub struct PythonRequestTask {
   asgi: Arc<Asgi>,
-  request: Request,
-}
-
-/// Error types for the Python request handler.
-#[allow(clippy::large_enum_variant)]
-#[derive(thiserror::Error, Debug)]
-pub enum HandlerError {
-  /// IO errors that may occur during file operations.
-  #[error("IO Error: {0}")]
-  IoError(#[from] std::io::Error),
-
-  /// Error when the current directory cannot be determined.
-  #[error("Failed to get current directory: {0}")]
-  CurrentDirectoryError(std::io::Error),
-
-  /// Error when the entry point for the Python application is not found.
-  #[error("Entry point not found: {0}")]
-  EntrypointNotFoundError(std::io::Error),
-
-  /// Error when converting a string to a C-compatible string.
-  #[error("Failed to convert string: {0}")]
-  StringCovertError(#[from] std::ffi::NulError),
-
-  /// Error when a Python operation fails.
-  #[error("Python error: {0}")]
-  PythonError(#[from] pyo3::prelude::PyErr),
-
-  /// Error when response channel is closed before sending a response.
-  #[error("No response sent")]
-  NoResponse,
-
-  /// Error when response is interrupted.
-  #[error("Response interrupted")]
-  ResponseInterrupted,
-
-  /// Error when response channel is closed.
-  #[error("Response channel closed: {0}")]
-  ResponseChannelClosed(#[from] RecvError),
-
-  /// Error when unable to send message to Python.
-  #[error("Unable to send message to Python: {0}")]
-  UnableToSendMessageToPython(#[from] SendError<HttpReceiveMessage>),
-
-  /// Error when creating an HTTP response fails.
-  #[error("Failed to create response: {0}")]
-  HttpHandlerError(#[from] http_handler::Error),
-
-  /// Error when event loop is closed.
-  #[error("Event loop closed")]
-  EventLoopClosed,
-
-  /// Error when PYTHON_NODE_WORKERS is invalid
-  #[error("Invalid PYTHON_NODE_WORKERS count: {0}")]
-  InvalidWorkerCount(#[from] std::num::ParseIntError),
-
-  /// Error when a lock is poisoned
-  #[error("Lock poisoned: {0}")]
-  LockPoisoned(String),
-
-  /// Error when a Tokio task fails
-  #[error("Tokio task error: {0}")]
-  TokioError(String),
-}
-
-impl<T> From<std::sync::PoisonError<T>> for HandlerError {
-  fn from(err: std::sync::PoisonError<T>) -> Self {
-    HandlerError::LockPoisoned(err.to_string())
-  }
+  request: Option<Request>,
 }
 
 #[cfg(feature = "napi-support")]
-#[cfg_attr(feature = "napi-support", napi)]
 impl Task for PythonRequestTask {
   type Output = Response;
   type JsValue = NapiResponse;
 
-  // Handle the Python request in the worker thread.
   fn compute(&mut self) -> Result<Self::Output> {
-    self
-      .asgi
-      .handle_sync(self.request.clone())
-      .map_err(|err| Error::from_reason(err.to_string()))
+    // Take ownership of the request (FromNapiValue already created fresh body with BodyBuffer)
+    let request = self
+      .request
+      .take()
+      .ok_or_else(|| Error::from_reason("Request already consumed"))?;
+
+    // Use the shared fallback runtime handle
+    asgi::fallback_handle().block_on(async {
+      // Spawn task to send pending body data if present (from Request constructor)
+      // This prevents deadlock when body size exceeds duplex buffer size
+      let body_writer = if let Some(body_buffer) = request.extensions().get::<BodyBuffer>() {
+        let data = Bytes::copy_from_slice(body_buffer.as_bytes());
+        let mut body = request.body().clone();
+
+        Some(tokio::spawn(async move {
+          use tokio::io::AsyncWriteExt;
+
+          body.write_all(&data).await?;
+          body.shutdown().await?;
+          Ok::<(), std::io::Error>(())
+        }))
+      } else {
+        // No body provided - close stream immediately
+        let mut body = request.body().clone();
+        Some(tokio::spawn(async move {
+          use tokio::io::AsyncWriteExt;
+
+          body.shutdown().await?;
+          Ok::<(), std::io::Error>(())
+        }))
+      };
+
+      // Invoke handler immediately (starts reader task)
+      // Handler returns when headers are ready, body streaming continues in background
+      let response = self
+        .asgi
+        .handle(request)
+        .await
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+      // Wait for body writing to complete
+      if let Some(writer) = body_writer {
+        writer
+          .await
+          .map_err(|e| Error::from_reason(format!("Body writer task failed: {}", e)))?
+          .map_err(|e| Error::from_reason(e.to_string()))?;
+      }
+
+      // Extract parts to buffer the body
+      let (mut parts, mut body) = response.into_parts();
+
+      // Buffer all body chunks - consuming starts immediately after headers
+      use http_body_util::BodyExt;
+      let mut buf = BytesMut::new();
+      while let Some(result) = body.frame().await {
+        match result {
+          Ok(frame) => {
+            if let Ok(data) = frame.into_data() {
+              buf.extend_from_slice(&data);
+            }
+          }
+          Err(e) => {
+            return Err(Error::from_reason(e));
+          }
+        }
+      }
+      let bytes = buf.freeze();
+
+      // Store buffered body in extension
+      parts.extensions.insert(BodyBuffer::from_bytes(bytes));
+
+      // Create a dummy ResponseBody since body is buffered in extension
+      let dummy_body = ResponseBody::new();
+      let buffered_response = http::Response::from_parts(parts, dummy_body);
+
+      Ok::<http::Response<ResponseBody>, Error>(buffered_response)
+    })
   }
 
-  // Handle converting the PHP response to a JavaScript response in the main thread.
   fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
-    Ok(Into::<NapiResponse>::into(output))
+    Ok(output.into())
+  }
+}
+
+/// Task container to run a Python streaming request in a worker thread.
+#[cfg(feature = "napi-support")]
+pub struct PythonStreamTask {
+  asgi: Arc<Asgi>,
+  request: Option<Request>,
+}
+
+#[cfg(feature = "napi-support")]
+#[napi]
+impl Task for PythonStreamTask {
+  type Output = Response;
+  type JsValue = Object<'static>;
+
+  // Handle the Python streaming request in the worker thread.
+  fn compute(&mut self) -> Result<Self::Output> {
+    // Take ownership of the request to avoid cloning
+    let request = self
+      .request
+      .take()
+      .ok_or_else(|| Error::from_reason("Request already consumed"))?;
+
+    // Get the current runtime handle or use the global fallback runtime
+    // This ensures background tasks stay alive even after compute() returns
+    asgi::fallback_handle().block_on(async {
+      // Check if this is a WebSocket request
+      let is_websocket = request
+        .extensions()
+        .get::<http_handler::WebSocketMode>()
+        .is_some();
+
+      // Spawn task to send pending body data if present (from Request constructor)
+      // This prevents deadlock when body size exceeds duplex buffer size
+      let body_writer = if let Some(body_buffer) = request.extensions().get::<BodyBuffer>() {
+        let data = Bytes::copy_from_slice(body_buffer.as_bytes());
+        let mut body = request.body().clone();
+        let should_close = !is_websocket;
+
+        Some(tokio::spawn(async move {
+          use tokio::io::AsyncWriteExt;
+
+          body.write_all(&data).await?;
+          if should_close {
+            body.shutdown().await?;
+          }
+          Ok::<(), std::io::Error>(())
+        }))
+      } else if !is_websocket {
+        // No body provided - close stream immediately for non-WebSocket requests
+        let mut body = request.body().clone();
+        Some(tokio::spawn(async move {
+          use tokio::io::AsyncWriteExt;
+
+          body.shutdown().await?;
+          Ok::<(), std::io::Error>(())
+        }))
+      } else {
+        None
+      };
+
+      // Invoke handler immediately (starts reader task)
+      // For streaming responses, returns when headers are ready
+      let response = self
+        .asgi
+        .handle(request)
+        .await
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+      // Wait for body writing to complete
+      if let Some(writer) = body_writer {
+        writer
+          .await
+          .map_err(|e| Error::from_reason(format!("Body writer task failed: {}", e)))?
+          .map_err(|e| Error::from_reason(e.to_string()))?;
+      }
+
+      Ok(response)
+    })
+  }
+
+  // Handle converting the Python response to a JavaScript response in the main thread.
+  fn resolve(&mut self, env: Env, output: Self::Output) -> Result<Self::JsValue> {
+    // Convert to NapiResponse and set up async iterator
+    let response: NapiResponse = output.into();
+    response.make_streamable(env)
   }
 }
 
@@ -486,5 +614,80 @@ mod tests {
     set.insert(target1);
     set.insert(target2); // Should not increase size due to equality
     assert_eq!(set.len(), 1);
+  }
+}
+
+/// Error types for the Python request handler.
+#[allow(clippy::large_enum_variant)]
+#[derive(thiserror::Error, Debug)]
+pub enum HandlerError {
+  /// IO errors that may occur during file operations.
+  #[error("IO Error: {0}")]
+  IoError(#[from] std::io::Error),
+
+  /// Error when the current directory cannot be determined.
+  #[error("Failed to get current directory: {0}")]
+  CurrentDirectoryError(std::io::Error),
+
+  /// Error when the entry point for the Python application is not found.
+  #[error("Entry point not found: {0}")]
+  EntrypointNotFoundError(std::io::Error),
+
+  /// Error when converting a string to a C-compatible string.
+  #[error("Failed to convert string: {0}")]
+  StringCovertError(#[from] std::ffi::NulError),
+
+  /// Error when a Python operation fails.
+  #[error("Python error: {0}")]
+  PythonError(#[from] pyo3::prelude::PyErr),
+
+  /// Error when response channel is closed before sending a response.
+  #[error("No response sent")]
+  NoResponse,
+
+  /// Error when response is interrupted.
+  #[error("Response interrupted")]
+  ResponseInterrupted,
+
+  /// Error when response channel is closed.
+  #[error("Response channel closed: {0}")]
+  ResponseChannelClosed(#[from] RecvError),
+
+  /// Error when unable to send message to Python.
+  #[error("Unable to send message to Python: {0}")]
+  UnableToSendMessageToPython(#[from] SendError<HttpReceiveMessage>),
+
+  /// Error when creating an HTTP response fails.
+  #[error("Failed to create response: {0}")]
+  HttpHandlerError(#[from] http_handler::Error),
+
+  /// Error when event loop is closed.
+  #[error("Event loop closed")]
+  EventLoopClosed,
+
+  /// Error when PYTHON_NODE_WORKERS is invalid
+  #[error("Invalid PYTHON_NODE_WORKERS count: {0}")]
+  InvalidWorkerCount(#[from] std::num::ParseIntError),
+
+  /// Error when a lock is poisoned
+  #[error("Lock poisoned: {0}")]
+  LockPoisoned(String),
+
+  /// Error when a Tokio task fails
+  #[error("Tokio task error: {0}")]
+  TokioError(String),
+
+  /// Error when request stream has already been consumed
+  #[error("Request stream already consumed")]
+  StreamAlreadyConsumed,
+
+  /// Error when WebSocket connection was not accepted
+  #[error("WebSocket connection not accepted")]
+  WebSocketNotAccepted,
+}
+
+impl<T> From<std::sync::PoisonError<T>> for HandlerError {
+  fn from(err: std::sync::PoisonError<T>) -> Self {
+    HandlerError::LockPoisoned(err.to_string())
   }
 }

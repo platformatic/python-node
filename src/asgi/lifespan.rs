@@ -5,6 +5,7 @@ use pyo3::types::PyDict;
 use crate::asgi::AsgiInfo;
 
 /// The lifespan scope exists for the duration of the event loop.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct LifespanScope {
   /// An empty namespace where the application can persist state to be used
