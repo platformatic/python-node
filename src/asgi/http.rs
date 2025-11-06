@@ -320,26 +320,26 @@ impl<'py> FromPyObject<'py> for HttpSendMessage {
         let mut headers: Vec<(String, String)> = Vec::new();
         if let Ok(headers_list) = headers_py.downcast::<pyo3::types::PyList>() {
           for item in headers_list.iter() {
-            if let Ok(header_pair) = item.downcast::<pyo3::types::PyList>() {
-              if header_pair.len() == 2 {
-                let name = header_pair.get_item(0)?;
-                let value = header_pair.get_item(1)?;
+            if let Ok(header_pair) = item.downcast::<pyo3::types::PyList>()
+              && header_pair.len() == 2
+            {
+              let name = header_pair.get_item(0)?;
+              let value = header_pair.get_item(1)?;
 
-                // Convert bytes to string
-                let name_str = if let Ok(bytes) = name.downcast::<pyo3::types::PyBytes>() {
-                  String::from_utf8_lossy(bytes.as_bytes()).to_string()
-                } else {
-                  name.extract::<String>()?
-                };
+              // Convert bytes to string
+              let name_str = if let Ok(bytes) = name.downcast::<pyo3::types::PyBytes>() {
+                String::from_utf8_lossy(bytes.as_bytes()).to_string()
+              } else {
+                name.extract::<String>()?
+              };
 
-                let value_str = if let Ok(bytes) = value.downcast::<pyo3::types::PyBytes>() {
-                  String::from_utf8_lossy(bytes.as_bytes()).to_string()
-                } else {
-                  value.extract::<String>()?
-                };
+              let value_str = if let Ok(bytes) = value.downcast::<pyo3::types::PyBytes>() {
+                String::from_utf8_lossy(bytes.as_bytes()).to_string()
+              } else {
+                value.extract::<String>()?
+              };
 
-                headers.push((name_str, value_str));
-              }
+              headers.push((name_str, value_str));
             }
           }
         }
@@ -414,7 +414,7 @@ mod tests {
       .header("authorization", "Bearer token123")
       .header("user-agent", "test-client/1.0")
       .header("x-custom-header", "custom-value")
-      .body(bytes::BytesMut::from("request body"))
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     // Set socket info extension
@@ -482,7 +482,7 @@ mod tests {
     let request = Builder::new()
       .method(Method::GET)
       .uri("/")
-      .body(bytes::BytesMut::new())
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     let scope: HttpConnectionScope = (&request)
@@ -509,7 +509,7 @@ mod tests {
       .method(Method::PUT)
       .uri("http://api.example.com/resource/123")
       .version(Version::HTTP_2)
-      .body(bytes::BytesMut::new())
+      .body(http_handler::RequestBody::new())
       .unwrap();
 
     let scope: HttpConnectionScope = (&request)

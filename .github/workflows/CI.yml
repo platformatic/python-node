@@ -67,7 +67,7 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - host: macos-latest
+          - host: macos-13
             target: x86_64-apple-darwin
             build: pnpm run build --target x86_64-apple-darwin
           - host: macos-latest
@@ -185,7 +185,6 @@ jobs:
           - '3.11'
           - '3.12'
           - '3.13'
-          # - '3.14-rc'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -206,6 +205,11 @@ jobs:
         with:
           name: bindings-${{ matrix.settings.target }}
           path: .
+      - name: Remove old prebuilt binaries
+        run: |
+          echo "Removing old prebuilt binaries from node_modules..."
+          rm -rf node_modules/@platformatic/python-node-*
+        shell: bash
       - name: List packages
         run: ls -R .
         shell: bash
@@ -273,6 +277,11 @@ jobs:
         with:
           name: bindings-${{ matrix.settings.target }}
           path: .
+      - name: Remove old prebuilt binaries
+        run: |
+          echo "Removing old prebuilt binaries from node_modules..."
+          rm -rf node_modules/@platformatic/python-node-*
+        shell: bash
       - name: List packages
         run: ls -R .
         shell: bash
