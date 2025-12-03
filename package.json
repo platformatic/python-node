@@ -38,7 +38,7 @@
   },
   "optionalDependencies": {
     "@platformatic/python-node-darwin-arm64": "^0.1.4",
-    "@platformatic/python-node-darwin-x64": "^0.1.4",
+    "@platformatic/python-node-darwin-x64": "^1.0.0",
     "@platformatic/python-node-linux-x64-gnu": "^0.1.4"
   }
 }
