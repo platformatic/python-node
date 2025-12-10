@@ -22,8 +22,8 @@ importers:
         specifier: ^0.1.4
         version: 0.1.10
       '@platformatic/python-node-linux-x64-gnu':
-        specifier: ^0.1.4
-        version: 0.1.10
+        specifier: ^1.0.0
+        version: 1.0.0
 
 packages:
 
@@ -689,8 +689,8 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@platformatic/python-node-linux-x64-gnu@0.1.10':
-    resolution: {integrity: sha512-raqvdM6W74qa/m6qjhr2OV0dPyt5VVmFD/e/X/wZllR3iDtpO/D7c5VQJ4HsY166VmYA7ffOGBoNh8luV1Gdng==}
+  '@platformatic/python-node-linux-x64-gnu@1.0.0':
+    resolution: {integrity: sha512-rUFTh7JxXjdzOYUWnIQ/lD5i8yxJQ7WC6hLpciLIUyDa2hBT/Z//+K/e/ZdPuvMnCQ7xUV3/NkGKca/Rca5ijQ==}
     engines: {node: '>= 20'}
     cpu: [x64]
     os: [linux]
@@ -1335,7 +1335,7 @@ snapshots:
   '@platformatic/python-node-darwin-arm64@0.1.10':
     optional: true
 
-  '@platformatic/python-node-linux-x64-gnu@0.1.10':
+  '@platformatic/python-node-linux-x64-gnu@1.0.0':
     optional: true
 
   '@tybys/wasm-util@0.10.1':
