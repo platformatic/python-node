@@ -1,0 +1,2 @@
+onlyBuiltDependencies:
+  - '@platformatic/python-node-darwin-arm64'

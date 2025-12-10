@@ -23,5 +23,9 @@
   "license": "MIT",
   "engines": {
     "node": ">= 20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/platformatic/python-node"
   }
 }

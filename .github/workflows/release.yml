@@ -1,0 +1,77 @@
+name: Publish releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version number to tag and release'
+        required: true
+        type: string
+      prerelease:
+        description: 'Release as pre-release'
+        required: false
+        type: boolean
+        default: false
+      skip-tests:
+        description: 'Skip tests (use if tests already passed in CI)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  DEBUG: napi:*
+  APP_NAME: python-node
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      run-tests: ${{ inputs.skip-tests == false }}
+
+  release-npm:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+      - run: pnpm install
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: .
+      - name: Change version number and sync
+        run: node scripts/update-version.mjs ${{ inputs.version }}
+      - name: Update lockfile
+        run: pnpm install
+      - name: GIT commit and push all changed files
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -a -m "Bumped v${{ inputs.version }}"
+          git push origin HEAD:${{ github.ref }}
+      - name: Update npm
+        run: npm install -g npm@latest
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm publish --access public --tag ${{ inputs.prerelease == true && 'next' || 'latest' }}
+      - name: 'Create release notes'
+        run: |
+          npx @matteo.collina/release-notes -a ${{ secrets.GITHUB_TOKEN }} -t v${{ inputs.version }} -r python-node -o platformatic ${{ inputs.prerelease == true && '-p' || '' }} -c ${{ github.ref }}
