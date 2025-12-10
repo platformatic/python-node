@@ -21,9 +21,6 @@ importers:
       '@platformatic/python-node-darwin-arm64':
         specifier: ^0.1.4
         version: 0.1.10
-      '@platformatic/python-node-darwin-x64':
-        specifier: ^0.1.4
-        version: 0.1.10
       '@platformatic/python-node-linux-x64-gnu':
         specifier: ^0.1.4
         version: 0.1.10
@@ -692,12 +689,6 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
-  '@platformatic/python-node-darwin-x64@0.1.10':
-    resolution: {integrity: sha512-rs4STYb/2D6mV2duO7CCrmtf0/YjPTkn1IaIdxxSQGTVK0z+LONymCvS/TCdGK9mWdj9Y88ao66NIr/itlM73g==}
-    engines: {node: '>= 20'}
-    cpu: [x64]
-    os: [darwin]
-
   '@platformatic/python-node-linux-x64-gnu@0.1.10':
     resolution: {integrity: sha512-raqvdM6W74qa/m6qjhr2OV0dPyt5VVmFD/e/X/wZllR3iDtpO/D7c5VQJ4HsY166VmYA7ffOGBoNh8luV1Gdng==}
     engines: {node: '>= 20'}
@@ -1342,9 +1333,6 @@ snapshots:
     optional: true
 
   '@platformatic/python-node-darwin-arm64@0.1.10':
-    optional: true
-
-  '@platformatic/python-node-darwin-x64@0.1.10':
     optional: true
 
   '@platformatic/python-node-linux-x64-gnu@0.1.10':

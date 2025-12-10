@@ -1,0 +1,366 @@
+name: Build and Test
+
+on:
+  workflow_call:
+    inputs:
+      run-tests:
+        description: 'Whether to run tests after build'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  DEBUG: napi:*
+  APP_NAME: python-node
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            fix-python-soname
+            fix-python-soname.js
+          sparse-checkout-cone-mode: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache
+            target/
+          key: wasm-cargo-cache-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build WASM
+        working-directory: fix-python-soname
+        run: |
+          cargo build --target wasm32-wasip1 --release
+          cp target/wasm32-wasip1/release/fix-python-soname.wasm ../fix-python-soname.wasm
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-bindings
+          path: |
+            fix-python-soname.wasm
+            fix-python-soname.js
+
+  build:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            npm_dir: darwin-arm64
+            build: pnpm run build --target aarch64-apple-darwin
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            npm_dir: linux-x64-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            build: pnpm run build --target x86_64-unknown-linux-gnu
+    name: stable - ${{ matrix.settings.target }} - node@20
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-bindings
+          path: npm/${{ matrix.settings.npm_dir }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        if: ${{ !matrix.settings.docker }}
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !matrix.settings.docker }}
+        with:
+          toolchain: stable
+          targets: ${{ matrix.settings.target }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache
+            target/
+          key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - uses: goto-bus-stop/setup-zig@v2
+        if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' || matrix.settings.target == 'armv7-unknown-linux-musleabihf' }}
+        with:
+          version: 0.13.0
+      - name: Setup toolchain
+        run: ${{ matrix.settings.setup }}
+        if: ${{ matrix.settings.setup }}
+        shell: bash
+      - name: Install dependencies
+        run: pnpm install
+      - name: Build in docker
+        uses: addnab/docker-run-action@v3
+        if: ${{ matrix.settings.docker }}
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
+          run: |
+            set -x
+
+            # Install apt dependencies
+            apt-get update -y
+            apt-get install -y openssh-client python3 python3-dev
+
+            # Setup pnpm
+            corepack disable
+            npm i -gf pnpm
+
+            ${{ matrix.settings.build }}
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        if: ${{ !matrix.settings.docker }}
+        shell: bash
+      - name: Prepare npm package
+        run: |
+          mkdir -p artifacts
+          mv ${{ env.APP_NAME }}.*.node artifacts/
+          pnpm artifacts
+        shell: bash
+
+      - name: Upload npm package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.settings.npm_dir }}
+          path: npm/${{ matrix.settings.npm_dir }}
+          if-no-files-found: error
+
+      - name: Upload entrypoints artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: entrypoints
+          path: |
+            index.d.ts
+            index.js
+          overwrite: true
+          if-no-files-found: error
+
+  bundle:
+    name: Bundle release artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all npm package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-*
+          path: npm-artifacts
+
+      - name: Download entrypoints artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: entrypoints
+          path: .
+
+      - name: Organize npm packages
+        run: |
+          for dir in npm-artifacts/npm-*/; do
+            platform=$(basename "$dir" | sed 's/^npm-//')
+            echo "Moving $dir to npm/$platform/"
+            mv "$dir"/* "npm/$platform/"
+          done
+          rm -rf npm-artifacts
+        shell: bash
+
+      - name: List release bundle contents
+        run: |
+          echo "=== Root entrypoints ==="
+          ls -la index.js index.d.ts
+          echo ""
+          echo "=== npm package directories ==="
+          for dir in npm/*/; do
+            echo "--- $dir ---"
+            ls -la "$dir"
+          done
+        shell: bash
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            npm/
+            index.js
+            index.d.ts
+          if-no-files-found: error
+
+  test-macOS-binding:
+    name: Test ${{ matrix.settings.target }} - node@${{ matrix.node }} + python@${{ matrix.python }}
+    if: ${{ inputs.run-tests }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
+            npm_dir: darwin-arm64
+        node:
+          - '20'
+          - '22'
+          - '24'
+        python:
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.settings.architecture }}
+          cache: pnpm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.settings.architecture }}
+      - run: pnpm install
+      - name: Download npm package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-${{ matrix.settings.npm_dir }}
+          path: npm/${{ matrix.settings.npm_dir }}
+      - name: Download entrypoints artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: entrypoints
+          path: .
+      - name: Link npm package for testing
+        run: pnpm link ./npm/${{ matrix.settings.npm_dir }}
+      - run: cargo test
+      - run: pnpm test
+
+  test-linux-binding:
+    name: Test ${{ matrix.settings.target }} - node@${{ matrix.node }} + python@${{ matrix.python }}
+    if: ${{ inputs.run-tests }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            architecture: x64
+            npm_dir: linux-x64-gnu
+        node:
+          - '20'
+          - '22'
+          - '24'
+        python:
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.settings.architecture }}
+          cache: pnpm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.settings.architecture }}
+      - name: Install dependencies
+        run: pnpm install
+      - name: Download npm package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-${{ matrix.settings.npm_dir }}
+          path: npm/${{ matrix.settings.npm_dir }}
+      - name: Download entrypoints artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: entrypoints
+          path: .
+      - name: Output docker params
+        id: docker
+        run: |
+          node -e "
+            if ('${{ matrix.settings.target }}'.startsWith('aarch64')) {
+              console.log('PLATFORM=linux/arm64')
+            } else if ('${{ matrix.settings.target }}'.startsWith('armv7')) {
+              console.log('PLATFORM=linux/arm/v7')
+            } else {
+              console.log('PLATFORM=linux/amd64')
+            }
+          " >> $GITHUB_OUTPUT
+          node -e "
+            if ('${{ matrix.settings.target }}'.endsWith('-musl')) {
+              console.log('IMAGE=node:${{ matrix.node }}-alpine')
+            } else {
+              console.log('IMAGE=node:${{ matrix.node }}-slim')
+            }
+          " >> $GITHUB_OUTPUT
+          echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+      - name: Test crates
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ steps.docker.outputs.IMAGE }}
+          options: -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }}
+          run: |
+            set -x
+
+            # Install apt dependencies
+            apt-get update -y
+            apt-get install -y openssh-client curl git build-essential python3 python3-dev
+
+            # Install rust toolchain
+            curl https://sh.rustup.rs -sSf | bash -s -- -y -t ${{ matrix.settings.target }}
+            . "$HOME/.cargo/env"
+
+            cargo test --target ${{ matrix.settings.target }}
+      - name: Test bindings
+        uses: addnab/docker-run-action@v3
+        with:
+          image: ${{ steps.docker.outputs.IMAGE }}
+          options: -v ${{ steps.docker.outputs.PNPM_STORE_PATH }}:${{ steps.docker.outputs.PNPM_STORE_PATH }} -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} --platform ${{ steps.docker.outputs.PLATFORM }} -e CI=true -e GITHUB_ACTIONS=true
+          run: |
+            # Install Python 3.x
+            apt-get update -y
+            apt-get install -y python3 python3-dev patchelf
+
+            corepack disable
+            npm i -gf pnpm
+            pnpm install --prefer-offline
+            pnpm link ./npm/${{ matrix.settings.npm_dir }}
+            # Run fix-python-soname.js from the npm package directory to patch that binary
+            node npm/${{ matrix.settings.npm_dir }}/fix-python-soname.js
+            pnpm test
