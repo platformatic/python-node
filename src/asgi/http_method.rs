@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::str::FromStr;
 
+use pyo3::Borrowed;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
@@ -20,8 +21,10 @@ pub enum HttpMethod {
   Connect,
 }
 
-impl<'py> FromPyObject<'py> for HttpMethod {
-  fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for HttpMethod {
+  type Error = PyErr;
+
+  fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
     let method: String = ob.extract()?;
     method
       .to_uppercase()

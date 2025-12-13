@@ -1,4 +1,5 @@
 use http_handler::{Request, RequestExt, Version};
+use pyo3::Borrowed;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
@@ -295,9 +296,11 @@ pub enum HttpSendMessage {
   },
 }
 
-impl<'py> FromPyObject<'py> for HttpSendMessage {
-  fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-    let dict = ob.downcast::<PyDict>()?;
+impl<'a, 'py> FromPyObject<'a, 'py> for HttpSendMessage {
+  type Error = PyErr;
+
+  fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+    let dict = ob.cast::<PyDict>()?;
     let message_type = dict
       .get_item("type")?
       .ok_or_else(|| PyValueError::new_err("Missing 'type' key in HTTP send message dictionary"))?;
@@ -318,22 +321,22 @@ impl<'py> FromPyObject<'py> for HttpSendMessage {
 
         // Convert headers from list of lists to vec of tuples
         let mut headers: Vec<(String, String)> = Vec::new();
-        if let Ok(headers_list) = headers_py.downcast::<pyo3::types::PyList>() {
+        if let Ok(headers_list) = headers_py.cast::<pyo3::types::PyList>() {
           for item in headers_list.iter() {
-            if let Ok(header_pair) = item.downcast::<pyo3::types::PyList>()
+            if let Ok(header_pair) = item.cast::<pyo3::types::PyList>()
               && header_pair.len() == 2
             {
               let name = header_pair.get_item(0)?;
               let value = header_pair.get_item(1)?;
 
               // Convert bytes to string
-              let name_str = if let Ok(bytes) = name.downcast::<pyo3::types::PyBytes>() {
+              let name_str = if let Ok(bytes) = name.cast::<pyo3::types::PyBytes>() {
                 String::from_utf8_lossy(bytes.as_bytes()).to_string()
               } else {
                 name.extract::<String>()?
               };
 
-              let value_str = if let Ok(bytes) = value.downcast::<pyo3::types::PyBytes>() {
+              let value_str = if let Ok(bytes) = value.cast::<pyo3::types::PyBytes>() {
                 String::from_utf8_lossy(bytes.as_bytes()).to_string()
               } else {
                 value.extract::<String>()?

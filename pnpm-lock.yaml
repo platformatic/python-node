@@ -19,11 +19,11 @@ importers:
         version: 0.18.1
     optionalDependencies:
       '@platformatic/python-node-darwin-arm64':
-        specifier: ^0.1.4
-        version: 0.1.10
+        specifier: ^2.0.0
+        version: 2.0.0
       '@platformatic/python-node-linux-x64-gnu':
-        specifier: ^0.1.4
-        version: 0.1.10
+        specifier: ^2.0.0
+        version: 2.0.0
 
 packages:
 
@@ -683,14 +683,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@platformatic/python-node-darwin-arm64@0.1.10':
-    resolution: {integrity: sha512-FbvvFc1DcGn9MbiyPJ2zsAYzuESMiO49443wI383Liebb/HaIO32Y+E7JsM5tmf6A2larvRWoO4HprtjbZSUmA==}
+  '@platformatic/python-node-darwin-arm64@2.0.0':
+    resolution: {integrity: sha512-o1Dd+wDFWESbtvBhIxVEg0dAHbMjKbBifsZM/lPwNczCdNrSD/dtdDEyb6MsD22Fl93w9IVdv2MeztGak2LtMQ==}
     engines: {node: '>= 20'}
     cpu: [arm64]
     os: [darwin]
 
-  '@platformatic/python-node-linux-x64-gnu@0.1.10':
-    resolution: {integrity: sha512-raqvdM6W74qa/m6qjhr2OV0dPyt5VVmFD/e/X/wZllR3iDtpO/D7c5VQJ4HsY166VmYA7ffOGBoNh8luV1Gdng==}
+  '@platformatic/python-node-linux-x64-gnu@2.0.0':
+    resolution: {integrity: sha512-HLo6bgF5sC8nGAoBQbtqRWvE0QBNZtzsQ6+nMMX8+SgH6rxdUZGSH4W9Pt/22+9rzT/WcxmATv/uddACW86akw==}
     engines: {node: '>= 20'}
     cpu: [x64]
     os: [linux]
@@ -1332,10 +1332,10 @@ snapshots:
   '@oxlint/win32-x64@0.18.1':
     optional: true
 
-  '@platformatic/python-node-darwin-arm64@0.1.10':
+  '@platformatic/python-node-darwin-arm64@2.0.0':
     optional: true
 
-  '@platformatic/python-node-linux-x64-gnu@0.1.10':
+  '@platformatic/python-node-linux-x64-gnu@2.0.0':
     optional: true
 
   '@tybys/wasm-util@0.10.1':

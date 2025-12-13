@@ -134,12 +134,7 @@ async fn forward_http_request<R>(
 {
   const BUFFER_SIZE: usize = 64 * 1024; // 64KB buffer
   let mut buffer = BytesMut::with_capacity(BUFFER_SIZE);
-  loop {
-    let n = match request_stream.read_buf(&mut buffer).await {
-      Ok(n) => n,
-      Err(_) => break,
-    };
-
+  while let Ok(n) = request_stream.read_buf(&mut buffer).await {
     if n == 0 {
       // EOF - send final message
       let _ = rx.send(HttpReceiveMessage::Request {
@@ -271,11 +266,9 @@ where
       }
 
       // Write body data if not empty
-      if !body.is_empty() {
-        if response_stream.write_all(&body).await.is_err() {
-          // Client disconnected
-          return true;
-        }
+      if !body.is_empty() && response_stream.write_all(&body).await.is_err() {
+        // Client disconnected
+        return true;
       }
 
       // Check if this was the final chunk

@@ -61,7 +61,7 @@ impl Sender {
       let args_dict = args.bind(py);
       match &self.0 {
         SenderType::Http(tx) => {
-          let msg = HttpSendMessage::extract_bound(args_dict)?;
+          let msg: HttpSendMessage = args_dict.extract()?;
           tx.send(AcknowledgedMessage {
             message: msg,
             ack: ack_tx,
@@ -70,7 +70,7 @@ impl Sender {
           Ok(())
         }
         SenderType::WebSocket(tx) => {
-          let msg = WebSocketSendMessage::extract_bound(args_dict)?;
+          let msg: WebSocketSendMessage = args_dict.extract()?;
           tx.send(AcknowledgedMessage {
             message: msg,
             ack: ack_tx,
@@ -79,7 +79,7 @@ impl Sender {
           Ok(())
         }
         SenderType::Lifespan(tx) => {
-          let msg = LifespanSendMessage::extract_bound(args_dict)?;
+          let msg: LifespanSendMessage = args_dict.extract()?;
           tx.send(AcknowledgedMessage {
             message: msg,
             ack: ack_tx,
