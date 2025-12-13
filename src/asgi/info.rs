@@ -1,3 +1,4 @@
+use pyo3::Borrowed;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -35,9 +36,11 @@ impl<'py> IntoPyObject<'py> for AsgiInfo {
   }
 }
 
-impl<'py> FromPyObject<'py> for AsgiInfo {
-  fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-    let dict = ob.downcast::<PyDict>()?;
+impl<'a, 'py> FromPyObject<'a, 'py> for AsgiInfo {
+  type Error = PyErr;
+
+  fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+    let dict = ob.cast::<PyDict>()?;
     let version: String = dict
       .get_item("version")?
       .ok_or_else(|| PyValueError::new_err("Missing 'version' key in ASGI info dictionary"))?

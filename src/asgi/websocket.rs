@@ -1,4 +1,5 @@
 use http_handler::{Request, RequestExt, Version};
+use pyo3::Borrowed;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -313,9 +314,11 @@ pub enum WebSocketSendMessage {
   },
 }
 
-impl<'py> FromPyObject<'py> for WebSocketSendMessage {
-  fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-    let dict = ob.downcast::<PyDict>()?;
+impl<'a, 'py> FromPyObject<'a, 'py> for WebSocketSendMessage {
+  type Error = PyErr;
+
+  fn extract(ob: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+    let dict = ob.cast::<PyDict>()?;
     let message_type = dict.get_item("type")?.ok_or_else(|| {
       PyValueError::new_err("Missing 'type' key in WebSocket send message dictionary")
     })?;
