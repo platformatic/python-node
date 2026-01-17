@@ -8,4 +8,4 @@ name = "fix-python-soname"
 path = "src/main.rs"
 
 [dependencies]
-arwen = "0.0.2"
+arwen = "0.0.5"
