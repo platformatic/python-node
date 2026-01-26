@@ -406,7 +406,7 @@ dependencies = [
 [[package]]
 name = "http-handler"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-handler#058066078fddc67622435c9028526d7f18d80f75"
+source = "git+https://github.com/platformatic/http-handler#d651ecf85b974d9d18c26cf1946b7aa3dad8c718"
 dependencies = [
  "bytes",
  "futures-core",
@@ -423,7 +423,7 @@ dependencies = [
 [[package]]
 name = "http-rewriter"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-rewriter#a21dff0ae3a10bb98d6e3c31bcf3301cb974ed85"
+source = "git+https://github.com/platformatic/http-rewriter#9e6eb7bfd313a65afaefd30fc4f6dfc779266403"
 dependencies = [
  "bytes",
  "http",
@@ -671,9 +671,9 @@ checksum = "f89776e4d69bb58bc6993e99ffa1d11f228b839984854c7daeb5d37f87cbe950"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.105"
+version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535d180e0ecab6268a3e718bb9fd44db66bbbc256257165fc699dadf70d16fe7"
+checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
 ]
@@ -774,9 +774,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74d9a594b72ae6656596548f56f667211f8a97b3d4c3d467150794690dc40a"
+checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
 dependencies = [
  "proc-macro2",
 ]
@@ -902,9 +902,9 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "socket2"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
+checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
