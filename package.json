@@ -23,7 +23,7 @@
   "devDependencies": {
     "@napi-rs/cli": "^3.0.4",
     "@oxc-node/core": "^0.0.35",
-    "oxlint": "^0.18.0"
+    "oxlint": "^1.0.0"
   },
   "engines": {
     "node": ">= 20"
