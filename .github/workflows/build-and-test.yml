@@ -44,7 +44,7 @@ jobs:
           cargo build --target wasm32-wasip1 --release
           cp target/wasm32-wasip1/release/fix-python-soname.wasm ../fix-python-soname.wasm
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wasm-bindings
           path: |
@@ -71,7 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download WASM artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: wasm-bindings
           path: npm/${{ matrix.settings.npm_dir }}
@@ -136,14 +136,14 @@ jobs:
         shell: bash
 
       - name: Upload npm package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: npm-${{ matrix.settings.npm_dir }}
           path: npm/${{ matrix.settings.npm_dir }}
           if-no-files-found: error
 
       - name: Upload entrypoints artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: entrypoints
           path: |
@@ -160,13 +160,13 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all npm package artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: npm-*
           path: npm-artifacts
 
       - name: Download entrypoints artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: entrypoints
           path: .
@@ -194,7 +194,7 @@ jobs:
         shell: bash
 
       - name: Upload release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-bundle
           path: |
@@ -244,12 +244,12 @@ jobs:
           architecture: ${{ matrix.settings.architecture }}
       - run: pnpm install
       - name: Download npm package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: npm-${{ matrix.settings.npm_dir }}
           path: npm/${{ matrix.settings.npm_dir }}
       - name: Download entrypoints artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: entrypoints
           path: .
@@ -301,12 +301,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
       - name: Download npm package artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: npm-${{ matrix.settings.npm_dir }}
           path: npm/${{ matrix.settings.npm_dir }}
       - name: Download entrypoints artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: entrypoints
           path: .
