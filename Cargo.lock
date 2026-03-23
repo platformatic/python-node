@@ -399,7 +399,7 @@ dependencies = [
 [[package]]
 name = "http-handler"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-handler#fb028595ffd98df0f9dd20090e7db05392d9b58f"
+source = "git+https://github.com/platformatic/http-handler#22d7d708bd4aedf16f3244e5e39f1d45676a88fd"
 dependencies = [
  "bytes",
  "futures-core",
@@ -416,7 +416,7 @@ dependencies = [
 [[package]]
 name = "http-rewriter"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-rewriter#407703dbad5b43ec2076d59c62f9c220df1fa888"
+source = "git+https://github.com/platformatic/http-rewriter#11402c663177b9f2ef024e1f049c3e747768bd65"
 dependencies = [
  "bytes",
  "http",
@@ -454,9 +454,9 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itoa"
-version = "1.0.17"
+version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "libc"
