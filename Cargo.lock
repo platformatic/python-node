@@ -358,6 +358,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -399,7 +405,7 @@ dependencies = [
 [[package]]
 name = "http-handler"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-handler#a202386ff63967911d69caa37a1407d77253e797"
+source = "git+https://github.com/platformatic/http-handler#e199a11af4581d1e39770a79efc53b37a1812323"
 dependencies = [
  "bytes",
  "futures-core",
@@ -416,7 +422,7 @@ dependencies = [
 [[package]]
 name = "http-rewriter"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-rewriter#3d46e952876d1d4c1b402bade638a52f75e1f95f"
+source = "git+https://github.com/platformatic/http-rewriter#8c2924ccc8caa0a7bfacb0944baa148b2f0c7e46"
 dependencies = [
  "bytes",
  "http",
@@ -429,12 +435,12 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.13.1"
+version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45a8a2b9cb3e0b0c1803dbb0758ffac5de2f425b23c28f518faabd9d805342ff"
+checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.17.0",
 ]
 
 [[package]]
@@ -597,7 +603,7 @@ checksum = "271638cd5fa9cca89c4c304675ca658efc4e64a66c716b7cfe1afb4b9611dbbc"
 dependencies = [
  "crc32fast",
  "flate2",
- "hashbrown",
+ "hashbrown 0.16.1",
  "indexmap",
  "memchr",
  "ruzstd",
