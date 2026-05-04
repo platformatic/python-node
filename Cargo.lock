@@ -380,7 +380,7 @@ dependencies = [
 [[package]]
 name = "http-handler"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-handler#0c8dd174ad85865a4e79464b222a8930d80dbe86"
+source = "git+https://github.com/platformatic/http-handler#10ac2abe4fd0a4060963c72df99b478d86d0939d"
 dependencies = [
  "bytes",
  "futures-core",
@@ -397,7 +397,7 @@ dependencies = [
 [[package]]
 name = "http-rewriter"
 version = "1.0.0"
-source = "git+https://github.com/platformatic/http-rewriter#660061e7538e7fe3f835fb6d630511105c3a22ae"
+source = "git+https://github.com/platformatic/http-rewriter#5992dbe69f13109a70e096c013df17fa275eae1c"
 dependencies = [
  "bytes",
  "http",
