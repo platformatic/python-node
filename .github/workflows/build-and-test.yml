@@ -75,7 +75,7 @@ jobs:
         with:
           name: wasm-bindings
           path: npm/${{ matrix.settings.npm_dir }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: latest
       - uses: actions/setup-node@v6
@@ -230,7 +230,7 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: latest
       - uses: actions/setup-node@v6
@@ -285,7 +285,7 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: latest
       - name: Setup node
